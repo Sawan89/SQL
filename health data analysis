@@ -1,0 +1,562 @@
+select * from all_payers_sample limit 10;
+select * from diagnosis_schema limit 10;
+select * from encounter_table limit 10;
+
+-- create table for unique patient_sk
+create dimension table patient_sk_unique as
+select distinct patient_sk from all_payers_sample;
+
+select count(*) from all_payers_sample;
+
+
+select count(*) from patient_sk_unique;
+select * from patient_sk_unique limit 10;
+
+--create table copy
+create dimension table patient_sk_unique_copy as
+select * from patient_sk_unique;
+
+select count(*) from patient_sk_unique_copy;
+select * from patient_sk_unique_copy limit 10;
+
+-- creating samples
+drop table patients_sk_sample1;
+create dimension table patients_sk_sample1 as
+ select * from sample (
+ on patient_sk_unique samplefraction('0.0834')
+ Seed('1')
+);
+
+select count(*) from patients_sk_sample1;
+select * from patients_sk_sample1 limit 10;
+
+--deleting sample 1 contents from table
+--delete from patient_sk_unique_copy where patient_sk in (select patient_sk from patients_sk_sample1);
+--select count(*) from patient_sk_unique_copy;]
+
+
+--creating view by removing items from sample 1 so as to avoid duplication
+drop view patient_sk_view1;
+create view patient_sk_view1 as 
+select * from patient_sk_unique where patient_sk not in (select patient_sk from patients_sk_sample1);
+select count(*) from patient_sk_view1;
+
+-- creating sample 2
+drop table patients_sk_sample2 ;
+create dimension table patients_sk_sample2 as
+select * from sample (
+on patient_sk_view1 samplefraction('0.09091')
+Seed('2')
+);
+ 
+select count(*) from patients_sk_sample2;
+
+--creating view by removing items from sample 2 so as to avoid duplication
+drop view patient_sk_view2;
+create view patient_sk_view2 as 
+select * from patient_sk_view1 where patient_sk not in (select patient_sk from patients_sk_sample2);
+select count(*) from patient_sk_view2;
+
+-- creating sample 3
+drop table patients_sk_sample3 ;
+create dimension table patients_sk_sample3 as
+select * from sample (
+on patient_sk_view2 samplefraction('0.099999999')
+Seed('3')
+);
+ 
+select count(*) from patients_sk_sample3;
+
+--creating view by removing items from sample 3 so as to avoid duplication
+drop view patient_sk_view3;
+create view patient_sk_view3 as 
+select * from patient_sk_view2 where patient_sk not in (select patient_sk from patients_sk_sample3);
+select count(*) from patient_sk_view3;
+
+-- creating sample 4
+drop table patients_sk_sample4 ;
+create dimension table patients_sk_sample4 as
+select * from sample (
+on patient_sk_view3 samplefraction('0.11109')
+Seed('4')
+);
+ 
+select count(*) from patients_sk_sample4;
+
+--creating view by removing items from sample 4 so as to avoid duplication
+drop view patient_sk_view4;
+create view patient_sk_view4 as 
+select * from patient_sk_view3 where patient_sk not in (select patient_sk from patients_sk_sample4);
+select count(*) from patient_sk_view4;
+
+-- creating sample 5
+drop table patients_sk_sample5 ;
+create dimension table patients_sk_sample5 as
+select * from sample (
+on patient_sk_view4 samplefraction('0.12499')
+Seed('5')
+);
+ 
+select count(*) from patients_sk_sample5;
+
+--creating view by removing items from sample 5 so as to avoid duplication
+drop view patient_sk_view5;
+create view patient_sk_view5 as 
+select * from patient_sk_view4 where patient_sk not in (select patient_sk from patients_sk_sample5);
+select count(*) from patient_sk_view5;
+
+-- creating sample 6
+drop table patients_sk_sample6 ;
+create dimension table patients_sk_sample6 as
+select * from sample (
+on patient_sk_view5 samplefraction('0.14282')
+Seed('6')
+);
+ 
+select count(*) from patients_sk_sample6;
+
+--creating view by removing items from sample 6 so as to avoid duplication
+drop view patient_sk_view6;
+create view patient_sk_view6 as 
+select * from patient_sk_view5 where patient_sk not in (select patient_sk from patients_sk_sample6);
+select count(*) from patient_sk_view6;
+
+-- creating sample 7
+drop table patients_sk_sample7 ;
+create dimension table patients_sk_sample7 as
+select * from sample (
+on patient_sk_view6 samplefraction('0.1667')
+Seed('7')
+);
+
+select count(*) from patients_sk_sample7;
+
+--creating view by removing items from sample 7 so as to avoid duplication
+drop view patient_sk_view7;
+create view patient_sk_view7 as 
+select * from patient_sk_view6 where patient_sk not in (select patient_sk from patients_sk_sample7);
+select count(*) from patient_sk_view7;
+
+-- creating sample 8
+drop table patients_sk_sample8 ;
+create dimension table patients_sk_sample8 as
+select * from sample (
+on patient_sk_view7 samplefraction('0.1999')
+Seed('8')
+);
+
+select count(*) from patients_sk_sample8;
+
+--creating view by removing items from sample 8 so as to avoid duplication
+drop view patient_sk_view8;
+create view patient_sk_view8 as 
+select * from patient_sk_view7 where patient_sk not in (select patient_sk from patients_sk_sample8);
+select count(*) from patient_sk_view8;
+
+-- creating sample 9
+drop table patients_sk_sample9 ;
+create dimension table patients_sk_sample9 as
+select * from sample (
+on patient_sk_view8 samplefraction('0.2499')
+Seed('9')
+);
+
+select count(*) from patients_sk_sample9;
+
+--creating view by removing items from sample 9 so as to avoid duplication
+drop view patient_sk_view9;
+create view patient_sk_view9 as 
+select * from patient_sk_view8 where patient_sk not in (select patient_sk from patients_sk_sample9);
+select count(*) from patient_sk_view9;
+
+-- creating sample 10
+drop table patients_sk_sample10 ;
+create dimension table patients_sk_sample10 as
+select * from sample (
+on patient_sk_view9 samplefraction('0.3336')
+Seed('10')
+);
+
+select count(*) from patients_sk_sample10;
+
+--creating view by removing items from sample 10 so as to avoid duplication
+drop view patient_sk_view10;
+create view patient_sk_view10 as 
+select * from patient_sk_view9 where patient_sk not in (select patient_sk from patients_sk_sample10);
+select count(*) from patient_sk_view10;
+
+-- creating sample 11
+drop table patients_sk_sample11 ;
+create dimension table patients_sk_sample11 as
+select * from sample (
+on patient_sk_view10 samplefraction('0.5')
+Seed('11')
+);
+
+select count(*) from patients_sk_sample11;
+
+--creating view by removing items from sample 11 so as to avoid duplication
+drop view patient_sk_view11;
+create view patient_sk_view11 as 
+select * from patient_sk_view10 where patient_sk not in (select patient_sk from patients_sk_sample11);
+select count(*) from patient_sk_view11;
+
+--creating sample 12
+create dimension table patients_sk_sample12 as
+select * from patient_sk_view11;
+
+select count(*) from patients_sk_sample12;
+
+select * from patients_sk_sample12 limit 10;
+
+
+--sample 1
+create dimension table all_payers_sample_table_1 as
+select b.* from patients_sk_sample1 a left join all_payers_sample b
+on a.patient_sk=b.patient_sk;
+
+select count(*) from all_payers_sample_1;
+select * from all_payers_sample_1 limit 10;
+
+select count(distinct patient_sk) from all_payers_sample_1;
+
+--sample 2
+create view all_payers_sample_2 as
+select b.* from patients_sk_sample2 a left join all_payers_sample b
+on a.patient_sk=b.patient_sk;
+
+--sample 3
+create view all_payers_sample_3 as
+select b.* from patients_sk_sample3 a left join all_payers_sample b
+on a.patient_sk=b.patient_sk;
+
+--sample 4
+create view all_payers_sample_4 as
+select b.* from patients_sk_sample4 a left join all_payers_sample b
+on a.patient_sk=b.patient_sk;
+
+--sample 5
+create view all_payers_sample_5 as
+select b.* from patients_sk_sample5 a left join all_payers_sample b
+on a.patient_sk=b.patient_sk;
+
+--sample 6
+drop view all_payers_sample_6;
+create view all_payers_sample_6 as
+select b.* from patients_sk_sample6 a left join all_payers_sample b
+on a.patient_sk=b.patient_sk;
+
+--sample 7
+create view all_payers_sample_7 as
+select b.* from patients_sk_sample7 a left join all_payers_sample b
+on a.patient_sk=b.patient_sk;
+
+--sample 8
+create view all_payers_sample_8 as
+select b.* from patients_sk_sample8 a left join all_payers_sample b
+on a.patient_sk=b.patient_sk;
+ 
+--sample 9
+create view all_payers_sample_9 as
+select b.* from patients_sk_sample9 a left join all_payers_sample b
+on a.patient_sk=b.patient_sk;
+
+--sample 10
+create view all_payers_sample_10 as
+select b.* from patients_sk_sample10 a left join all_payers_sample b
+on a.patient_sk=b.patient_sk;
+
+--sample 11
+create view all_payers_sample_11 as
+select b.* from patients_sk_sample11 a left join all_payers_sample b
+on a.patient_sk=b.patient_sk;
+
+--sample 12
+create view all_payers_sample_12 as
+select b.* from patients_sk_sample12 a left join all_payers_sample b
+on a.patient_sk=b.patient_sk;
+
+select * from all_payers_sample_1 limit 100;
+
+select * from encounter_table limit 10;
+
+
+--joining all payers and encounters table
+create dimension table final_sample_1 as
+select b.*, a.diagnosis_code_trun,a.diagnosis_priority,a.present_on_admit_id from all_payers_sample_1 a, encounter_table b 
+where a.encounter_id = b.encounter_id;
+
+select * from final_sample_1 where patient_sk = '12742552';
+select * from final_sample_1 where encounter_id = '271842886';
+select * from final_sample_1 where patient_id = '99747112';
+
+select * from encounter_table where patient_sk = '12742552';
+
+select count(distinct encounter_id) from final_sample_1; --10656021
+select count (distinct encounter_id) from final_sample_1 where patient_type_desc = 'Recurring'; --286652;
+
+
+select distinct(dischg_disp_code_desc) from final_sample_1;
+create view test1 as
+select patient_sk,patient_id,encounter_id,dischg_disp_code_desc,admitted_dt_tm,discharged_dt_tm,patient_type_desc,diagnosis_code_trun, diagnosis_priority from final_sample_1
+order by patient_sk,patient_id,encounter_id,dischg_disp_code_desc,admitted_dt_tm,discharged_dt_tm,diagnosis_priority,diagnosis_code_trun;
+select count(*) from test1;
+--rows where discharge date < admitted data
+select count(*)from final_sample_1 where discharged_dt_tm < admitted_dt_tm;
+select * from final_sample_1 where discharged_dt_tm < admitted_dt_tm;
+
+--rows where discharge disposition is null
+select count(*)from final_sample_1 where dischg_disp_code_desc = 'NULL';
+select * from final_sample_1 where dischg_disp_code_desc = 'NULL';
+
+/* testing
+create view test2 as
+select patient_sk,patient_id,encounter_id,dischg_disp_code_desc,admitted_dt_tm,discharged_dt_tm,patient_type_desc,diagnosis_code_trun, diagnosis_priority from final_sample_1
+group by patient_sk,patient_id,encounter_id,dischg_disp_code_desc,admitted_dt_tm,discharged_dt_tm,diagnosis_priority,diagnosis_code_trun,patient_type_desc
+order by patient_sk,patient_id,encounter_id,dischg_disp_code_desc,admitted_dt_tm,discharged_dt_tm,diagnosis_priority,diagnosis_code_trun;
+
+select count(*) from test2;
+
+select distinct count(*) from final_sample_1;
+
+select * from final_sample_1 where patient_sk = '12742552'
+order by encounter_id;
+
+select * from test1 where not exists  (select * from test2);
+
+select * from test1 except  (select * from test2);
+
+create view test3 as
+select patient_sk,patient_id,encounter_id,dischg_disp_code_desc,admitted_dt_tm,discharged_dt_tm,patient_type_desc,diagnosis_code_trun, diagnosis_priority from final_sample_1
+group by patient_sk,patient_id,encounter_id,dischg_disp_code_desc,admitted_dt_tm,discharged_dt_tm,diagnosis_priority,diagnosis_code_trun,patient_type_desc;
+
+select count(distinct encounter_id) from test3;
+*/
+--calculating time from next visit
+
+--test table visit_los. Created modified table visit_los_readmit
+create dimension table visit_los as
+select  patient_sk,patient_id,encounter_id,dischg_disp_code_desc,admitted_dt_tm,discharged_dt_tm
+, row_number() over(partition by patient_sk order by admitted_dt_tm) as Visit ,(cast(discharged_dt_tm as date) - cast(admitted_dt_tm as date) + 1) as Length_of_Stay 
+from final_sample_1
+group by patient_sk,patient_id,encounter_id,dischg_disp_code_desc,admitted_dt_tm,discharged_dt_tm
+order by patient_sk,patient_id,encounter_id,dischg_disp_code_desc,admitted_dt_tm,discharged_dt_tm,Visit;
+
+select * from visit_los limit 100;
+
+-- deleting rows where admitted date is greater than discharged date
+select count(*) from final_sample_1 where admitted_dt_tm > discharged_dt_tm;
+delete from final_sample_1 where  admitted_dt_tm > discharged_dt_tm;
+
+drop table visit_los_readmit;
+create dimension table visit_los_readmit as
+select  patient_sk,patient_id,encounter_id,dischg_disp_code_desc,admitted_dt_tm,discharged_dt_tm,substr(admitted_dt_tm,1,10) as admitted_date,substr(discharged_dt_tm,1,10) as discharged_date
+, dense_rank() over(partition by patient_sk order by substr(admitted_dt_tm,1,10),substr(discharged_dt_tm,1,10)) as Visit ,(cast(discharged_dt_tm as date) - cast(admitted_dt_tm as date)) as Length_of_Stay,
+-1*(cast(discharged_dt_tm as date) - lead(cast(admitted_dt_tm as date),1,null) over(partition by patient_sk order by admitted_dt_tm,discharged_dt_tm)) as readmission_days
+,-1*(cast(admitted_dt_tm as date) - lead(cast(admitted_dt_tm as date),1,null) over(partition by patient_sk order by admitted_dt_tm,discharged_dt_tm)) as admit_date_diff,
+-1*(cast(discharged_dt_tm as date) - lead(cast(discharged_dt_tm as date),1,null) over(partition by patient_sk order by admitted_dt_tm,discharged_dt_tm)) as disch_date_diff from final_sample_1
+group by patient_sk,patient_id,encounter_id,dischg_disp_code_desc,admitted_dt_tm,discharged_dt_tm
+order by patient_sk,patient_id,encounter_id,dischg_disp_code_desc,admitted_dt_tm,discharged_dt_tm,Visit;
+
+select * from visit_los_readmit limit 100;
+select count(*) from visit_los_readmit; --10656021
+select * from visit_los_readmit where patient_sk = '43665100';
+
+--checking count of patient ids where readmission date is negative
+select count(  patient_sk) from visit_los_readmit where readmission_days <  0; --564089
+--distinct patient ids
+select count( distinct patient_sk) from visit_los_readmit where readmission_days <  0; --222294
+
+--checking count of rows where next date falls within the range of the previous date
+select count(*) from visit_los_readmit where length_of_stay > admit_date_diff and disch_date_diff < 0; --153397
+--checking count of rows where admit date falls within the range of the previous date but dischaarge date fall after.
+select count(*) from visit_los_readmit where length_of_stay > admit_date_diff and disch_date_diff > 0; --150847
+--checking count of rows where next date falls within the range of the previous date
+select count(*) from visit_los_readmit where admit_date_diff > 0 and length_of_stay > disch_date_diff ;
+select count(*) from visit_los_readmit where admit_date_diff = 0 and disch_date_diff < 0;
+select * from visit_los_readmit where admit_date_diff = 0 and disch_date_diff < 0 order by patient_sk;
+
+select * from visit_los_readmit where patient_sk = '10036900'
+order by patient_sk,patient_id,encounter_id,dischg_disp_code_desc,admitted_dt_tm,discharged_dt_tm,Visit;
+
+select * from visit_los_readmit_new where patient_sk = '10036900'
+;
+
+
+
+
+select count(*) from visit_los_readmit where admitted_dt_tm > discharged_dt_tm;
+select * from visit_los_readmit where admitted_dt_tm > discharged_dt_tm;
+
+select * from visit_los_readmit where patient_sk = '12793950';
+
+-- deleting rows where length of stay is 0
+delete from visit_los_readmit where length_of_stay = 0;
+select count(*) from visit_los_readmit where length_of_stay = 0;
+
+--Counting cases where length of stay is greater than admit date difference
+select * from visit_los_readmit where length_of_stay > admit_date_diff order by patient_sk;
+select * from visit_los_readmit where patient_sk = '10083305';
+select count(*) from visit_los_readmit where length_of_stay > admit_date_diff and disch_date_diff < 0; --153397
+select count(*) from visit_los_readmit where length_of_stay > admit_date_diff and disch_date_diff > 0; --150847
+
+select discount(*) from visit_los_readmit where length_of_stay > admit_date_diff and disch_date_diff < 0;
+
+select  count(patient_sk) from visit_los_readmit where patient_sk in (select patient_sk from visit_los_readmit where length_of_stay > admit_date_diff and disch_date_diff > 0);
+-- update readmission days
+select patient_sk,visit,max(readmission_days) from visit_los_readmit where patient_sk in( select patient_sk from visit_los_readmit
+group by patient_sk,visit
+having count(Visit) > 1 order by patient_sk,visit) and visit in ( select visit from visit_los_readmit
+group by patient_sk,visit
+having count(Visit) > 1 order by patient_sk,visit)
+group by patient_sk,visit;
+
+select * from visit_los_readmit where patient_sk = '12894536';
+
+select * from visit_los_readmit where patient_sk = '82196487' and patient_id = '155675044';
+
+select SUBSTR(admitted_dt_tm , 1, 10) from visit_los_readmit limit 5;
+
+
+drop table final_sample_1_with_los;
+create dimension table final_sample_1_with_los as
+select a.*,b.Visit,b.length_of_stay, b.readmission_date from final_sample_1 a, visit_los_readmit b 
+where a.patient_sk = b.patient_sk and
+a.patient_id = b.patient_id and
+a.encounter_id = b.encounter_id and
+a.dischg_disp_code_desc = b.dischg_disp_code_desc and
+a.admitted_dt_tm = b.admitted_dt_tm and
+a.discharged_dt_tm = b.discharged_dt_tm 
+order by patient_sk,patient_id,encounter_id,dischg_disp_code_desc,admitted_dt_tm,discharged_dt_tm;
+
+select * from final_sample_1_with_los limit 100;
+select * from final_sample_1_with_los where patient_sk = '43665100';
+
+drop view readmission_date;
+create dimension table readmission_date as
+SELECT  T1.patient_sk,T1.patient_id,T1.encounter_id,T1.dischg_disp_code_desc,T1.admitted_dt_tm,T1.discharged_dt_tm,((MIN(cast(T2.admitted_dt_tm as date) -cast(T1.admitted_dt_tm as date) ))) as DateDifference
+FROM    final_sample_1 T1
+        LEFT JOIN final_sample_1 T2
+            ON T1.patient_sk = T2.patient_sk
+            AND T2.admitted_dt_tm > T1.admitted_dt_tm
+group by T1.patient_sk,T1.patient_id,T1.encounter_id,T1.dischg_disp_code_desc,T1.admitted_dt_tm,T1.discharged_dt_tm
+order by T1.patient_sk,T1.patient_id,T1.encounter_id,T1.dischg_disp_code_desc,T1.admitted_dt_tm,T1.discharged_dt_tm;
+
+
+select * from readmission_date limit 1000;
+
+
+drop table visit_los_readmit_new;
+create dimension table visit_los_readmit_new as
+select  patient_sk,patient_id,encounter_id,dischg_disp_code_desc,admitted_dt_tm,discharged_dt_tm,substr(admitted_dt_tm,1,10) as admitted_date,substr(discharged_dt_tm,1,10) as discharged_date
+, dense_rank() over(partition by patient_sk order by substr(admitted_dt_tm,1,10),substr(discharged_dt_tm,1,10)) as Visit ,(cast(discharged_dt_tm as date) - cast(admitted_dt_tm as date)) as Length_of_Stay,
+-1*(cast(discharged_dt_tm as date) - lead(cast(admitted_dt_tm as date),1,null) over(partition by patient_sk order by substr(admitted_dt_tm,1,10),substr(discharged_dt_tm,1,10))) as readmission_days
+,-1*(cast(admitted_dt_tm as date) - lead(cast(admitted_dt_tm as date),1,null) over(partition by patient_sk order by substr(admitted_dt_tm,1,10),substr(discharged_dt_tm,1,10))) as admit_date_diff,
+-1*(cast(discharged_dt_tm as date) - lead(cast(discharged_dt_tm as date),1,null) over(partition by patient_sk order by substr(admitted_dt_tm,1,10),substr(discharged_dt_tm,1,10))) as disch_date_diff from final_sample_1
+group by patient_sk,patient_id,encounter_id,dischg_disp_code_desc,admitted_dt_tm,discharged_dt_tm
+order by patient_sk,patient_id,encounter_id,dischg_disp_code_desc,admitted_dt_tm,discharged_dt_tm,Visit;
+ 
+--checking count of patient ids where readmission date is negative
+select * from visit_los_readmit_new where readmission_days <  0 limit 2000; --546195
+--distinct patient ids
+select count( distinct patient_sk) from visit_los_readmit_new where readmission_days <  0; --215999
+
+--checking count of rows where next date falls within the range of the previous date
+select count(*) from visit_los_readmit_new where length_of_stay > admit_date_diff and disch_date_diff < 0; --119733
+select count(distinct patient_sk) from visit_los_readmit_new where length_of_stay > admit_date_diff and disch_date_diff < 0; --68207
+
+--checking count of rows where admit date falls within the range of the previous date but dischaarge date fall after.
+select count(*) from visit_los_readmit_new where length_of_stay > admit_date_diff and disch_date_diff > 0; --165234
+select count(distinct patient_sk) from visit_los_readmit_new where length_of_stay > admit_date_diff and disch_date_diff > 0; --70985
+--checking count of rows where admit date falls within the range of prev date but discharge date is the same
+select count(*) from visit_los_readmit_new where length_of_stay > admit_date_diff and disch_date_diff = 0; --261228
+select count(distinct patient_sk) from visit_los_readmit_new where length_of_stay > admit_date_diff and disch_date_diff = 0; --134958
+
+--checking count of rows where next date falls within the range of the previous date
+select count(*) from visit_los_readmit_new where admit_date_diff <0; --0
+-- here readmission date will be 0 but admit dates are same but discharge date is greater than previous date
+select count(*) from visit_los_readmit_new where admit_date_diff = 0 and disch_date_diff > 0; --106307
+--distinct
+select count(distinct patient_sk) from visit_los_readmit_new where admit_date_diff = 0 and disch_date_diff > 0; --75916
+select * from visit_los_readmit_new where admit_date_diff = 0 and disch_date_diff > 0;
+
+select * from visit_los_readmit_new where patient_sk = '10008643';
+
+alter table visit_los_readmit_new add is_redmit_grt_30 int;
+update visit_los_readmit_new set is_redmit_grt_30 = 1 where readmission_days > 30;
+update visit_los_readmit_new set is_redmit_grt_30 = 1 where readmission_days = 30;
+update visit_los_readmit_new set is_redmit_grt_30 = 0 where readmission_days < 30;
+
+select * from visit_los_readmit_new where patient_sk = '12894536';
+
+select * from visit_los_readmit_new where patient_sk = '43665100';
+select * from visit_los_readmit_new where patient_sk = '10036900';
+
+select * from visit_los_readmit_new where patient_sk = '10083305';
+
+select * from visit_los_readmit_new where patient_sk = '10065562'; 
+select * from final_sample_1 where patient_sk = '10005943'; 
+select * from final_sample_1 where patient_sk = '10012744'; 
+
+select count(distinct patient_sk) from final_sample_1 where payer_id = '13';
+
+create dimension table temp1 as (select distinct * from final_sample_1 where patient_sk in (select distinct(patient_sk) from visit_los_readmit_new where readmission_days < 0));
+create dimension table temp2 as (select distinct * from final_sample_1 where encounter_id in (select distinct(encounter_id) from visit_los_readmit_new where readmission_days < 0));
+select count(*)from temp1;
+select count(*) from final_sample_1; --30 m
+
+select count(*) from visit_los_readmit_new;
+
+select * from temp2;
+
+select count ( patient_sk)  from visit_los_readmit_new where length_of_stay > 365 and readmission_days < 0; --5530
+select count (*) from final_sample_1 where patient_type_desc = 'Emergency';
+
+--Deleting entries where length of stay > 365 and readmission_days < 0
+create dimension table visit_los_readmit_test as select * from visit_los_readmit_new;
+delete from visit_los_readmit_test where length_of_stay > 365 and readmission_days < 0;
+
+select count(*) from visit_los_readmit_test where length_of_stay > admit_date_diff and disch_date_diff < 0; --114443
+select count(*) from visit_los_readmit_test where length_of_stay > admit_date_diff and disch_date_diff > 0; --165043
+select count(*) from visit_los_readmit_test where length_of_stay > admit_date_diff and disch_date_diff = 0; --261179
+
+
+
+-- creating table with encounter_ids with neg reaadmit
+drop table lag_for_neg_readmit;
+create dimension table lag_for_neg_readmit as
+select *,lead (encounter_id,1,null)over(partition by patient_sk order by encounter_id) as lag1_encounter_id,
+lead (encounter_id,2,null)over(partition by patient_sk order by encounter_id) as lag2_encounter_id,
+lead (encounter_id,3,null)over(partition by patient_sk order by encounter_id) as lag3_encounter_id
+from visit_los_readmit_new;
+
+create dimension table lag_for_neg_readmit_final as
+select * from lag_for_neg_readmit where readmission_days < 0;
+
+create dimension table lag_for_neg_readmit_within_final as
+select * from lag_for_neg_readmit where length_of_stay > admit_date_diff and disch_date_diff < 0;
+
+select count(distinct patient_sk) from final_sample_1 where encounter_id in (select encounter_id from lag_for_neg_readmit_within_final) and patient_type_desc = 'Emergency'; --402
+select count(distinct patient_sk) from final_sample_1 where encounter_id in (select lag1_encounter_id from lag_for_neg_readmit_within_final) and patient_type_desc = 'Emergency'; --8509
+select count(distinct patient_sk) from final_sample_1 where encounter_id in (select lag2_encounter_id from lag_for_neg_readmit_within_final) and patient_type_desc = 'Emergency'; --7376
+select count(distinct patient_sk) from final_sample_1 where encounter_id in (select lag3_encounter_id from lag_for_neg_readmit_within_final) and patient_type_desc = 'Emergency'; --6431
+
+
+select * from visit_los_readmit_test where patient_sk = '10005943';
+ 
+
+/*
+SELECT *
+FROM stream(
+ON afro_edges
+SCRIPT('Rexec --vanilla echo_input.R')
+OUTPUTS('*')
+);
+
+*/
+
+select * from final_sample_1 limit 1;
+select distinct caresetting_desc, count(distinct encounter_id) from final_sample_1
+group by caresetting_desc;
+
+
