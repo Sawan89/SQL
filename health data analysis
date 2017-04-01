@@ -446,6 +446,9 @@ order by T1.patient_sk,T1.patient_id,T1.encounter_id,T1.dischg_disp_code_desc,T1
 select * from readmission_date limit 1000;
 
 
+
+
+ 
 drop table visit_los_readmit_new;
 create dimension table visit_los_readmit_new as
 select  patient_sk,patient_id,encounter_id,dischg_disp_code_desc,admitted_dt_tm,discharged_dt_tm,substr(admitted_dt_tm,1,10) as admitted_date,substr(discharged_dt_tm,1,10) as discharged_date
@@ -527,23 +530,71 @@ drop table lag_for_neg_readmit;
 create dimension table lag_for_neg_readmit as
 select *,lead (encounter_id,1,null)over(partition by patient_sk order by encounter_id) as lag1_encounter_id,
 lead (encounter_id,2,null)over(partition by patient_sk order by encounter_id) as lag2_encounter_id,
-lead (encounter_id,3,null)over(partition by patient_sk order by encounter_id) as lag3_encounter_id
+lead (encounter_id,3,null)over(partition by patient_sk order by encounter_id) as lag3_encounter_id,
+lead (admitted_date,1,null)over(partition by patient_sk order by encounter_id) as lag1_admitted_date,
+lead (admitted_date,2,null)over(partition by patient_sk order by encounter_id) as lag2_admitted_date,
+lead (admitted_date,3,null)over(partition by patient_sk order by encounter_id) as lag3_admitted_date,
+lead (discharged_date,1,null)over(partition by patient_sk order by encounter_id) as lag1_discharged_date,
+lead (discharged_date,2,null)over(partition by patient_sk order by encounter_id) as lag2_discharged_date,
+lead (discharged_date,3,null)over(partition by patient_sk order by encounter_id) as lag3_discharged_date
 from visit_los_readmit_new;
 
+
+drop table lag_for_neg_readmit_final;
 create dimension table lag_for_neg_readmit_final as
 select * from lag_for_neg_readmit where readmission_days < 0;
 
+drop table lag_for_neg_readmit_within_final;
 create dimension table lag_for_neg_readmit_within_final as
-select * from lag_for_neg_readmit where length_of_stay > admit_date_diff and disch_date_diff < 0;
+select * from lag_for_neg_readmit where length_of_stay > admit_date_diff and disch_date_diff < 0 and
+admitted_date < lag1_admitted_date and discharged_date > lag1_discharged_date and
+admitted_date < lag2_admitted_date and discharged_date > lag2_discharged_date and
+admitted_date < lag3_admitted_date and discharged_date > lag3_discharged_date;
 
-select count(distinct patient_sk) from final_sample_1 where encounter_id in (select encounter_id from lag_for_neg_readmit_within_final) and patient_type_desc = 'Emergency'; --402
-select count(distinct patient_sk) from final_sample_1 where encounter_id in (select lag1_encounter_id from lag_for_neg_readmit_within_final) and patient_type_desc = 'Emergency'; --8509
-select count(distinct patient_sk) from final_sample_1 where encounter_id in (select lag2_encounter_id from lag_for_neg_readmit_within_final) and patient_type_desc = 'Emergency'; --7376
-select count(distinct patient_sk) from final_sample_1 where encounter_id in (select lag3_encounter_id from lag_for_neg_readmit_within_final) and patient_type_desc = 'Emergency'; --6431
+select * from lag_for_neg_readmit_within_final;
+
+select count(distinct patient_sk) from final_sample_1 where encounter_id in (select encounter_id from lag_for_neg_readmit_within_final) and patient_type_desc = 'Emergency'; --1
+select count(distinct patient_sk) from final_sample_1 where encounter_id in (select lag1_encounter_id from lag_for_neg_readmit_within_final) and patient_type_desc = 'Emergency'; --654
+select count(distinct patient_sk) from final_sample_1 where encounter_id in (select lag2_encounter_id from lag_for_neg_readmit_within_final) and patient_type_desc = 'Emergency'; --620
+select count(distinct patient_sk) from final_sample_1 where encounter_id in (select lag3_encounter_id from lag_for_neg_readmit_within_final) and patient_type_desc = 'Emergency'; --594
+
+select * from lag_for_neg_readmit_within_final limit 100;
+
+update lag_for_neg_readmit_within_final set visit = visit -1 where encounter_id in (select encounter_id from final_sample_1 where encounter_id in (select lag1_encounter_id from lag_for_neg_readmit_within_final) and patient_type_desc = 'Emergency'); 
+update lag_for_neg_readmit_within_final set visit = visit -2 where encounter_id in (select encounter_id from final_sample_1 where encounter_id in (select lag2_encounter_id from lag_for_neg_readmit_within_final) and patient_type_desc = 'Emergency'); 
+
+
 
 
 select * from visit_los_readmit_test where patient_sk = '10005943';
- 
+
+
+ /*
+alter table final_table_with_los add status int;
+alter table final_table_with_los drop column status;
+
+select * from final_table_with_los;
+
+update final_table_with_los set status = 0;
+update final_table_with_los set status = 1 where  dischg_disp_code_desc like 'Expired%';
+
+select count(*) from final_table_with_los where status = 1;
+*/
+/*
+SELECT * FROM CoxPH (
+ON (SELECT 1)
+PARTITION BY 1
+InputTable ('final_table_with_los')
+FeatureColumns ()
+CategoricalColumns ()
+TimeIntervalColumn ('total_days_spent')
+EventColumn ('status')
+CoefficientTable ('final_table_with_los_coef')
+LinearPredictorTable ('final_table_with_los_lp')
+);
+
+
+*/
 
 /*
 SELECT *
@@ -554,9 +605,178 @@ OUTPUTS('*')
 );
 
 */
+/*Adding total time spent in the hospital*/
 
-select * from final_sample_1 limit 1;
-select distinct caresetting_desc, count(distinct encounter_id) from final_sample_1
-group by caresetting_desc;
+
+create dimension table total_days_spent as
+select sum(length_of_stay) as total_days_spent , patient_sk from visit_los_readmit_new
+group by patient_sk;
+
+
+create dimension table visit_los_readmit_new_with_total_days as 
+select A.*, B.total_days_spent from visit_los_readmit_new A, total_days_spent B
+where A.patient_sk = B.patient_sk;
+
+select * from visit_los_readmit_new_with_total_days;
+select count(distinct patient_sk) from visit_los_readmit_new_with_total_days;
+
+
+
+
+
+select * from visit_los_readmit_new where patient_sk = '13271001';
+
+
+
+select * from final_table_with_los;
+
+drop table mortality_table;
+create dimension table mortality_table as
+select distinct patient_sk from final_sample_1 where dischg_disp_code_desc like 'Expired%';
+select count(*) from mortality_table;
+
+select count(distinct(patient_sk)) from mortality_table_2;
+
+create dimension table mortality_table_2 as 
+select * from visit_los_readmit_new_with_total_days where patient_sk in (select patient_sk from mortality_table);
+select count(*) from mortality_table_2;
+-- 30 day, 60 day and 90 day mortalityy
+
+--mortality
+drop table max_disch_date;
+create dimension table max_disch_date as
+select max(cast(discharged_dt_tm as date)) as max_disch_date, patient_sk from mortality_table_2
+group by patient_sk;
+
+select * from max_disch_date limit 100;
+
+drop table mortality_table_2_max_disch_date;
+create dimension table mortality_table_2_max_disch_date as 
+select A.*, B.max_disch_date from mortality_table_2 A, max_disch_date B
+where A.patient_sk = B.patient_sk;
+
+select count(distinct patient_sk) from mortality_table_2_max_disch_date;
+
+drop table mortality_table_2_new_disch_date_diff;
+create dimension table mortality_table_2_new_disch_date_diff as 
+select *, max_disch_date - cast(discharged_dt_tm as date) as dischg_date_diff_for_30_60_90 from   mortality_table_2_max_disch_date;
+
+select count(distinct patient_sk) from mortality_table_2_new_disch_date_diff;
+select * from mortality_table_2_new_disch_date_diff;
+
+
+delete from mortality_table_2_new_disch_date_diff where dischg_date_diff_for_30_60_90 = 0 and visit > 1 and dischg_disp_code_desc like 'Expired%' ;
+
+select count(distinct(patient_sk)) from mortality_table_2_new_disch_date_diff;
+
+alter table mortality_table_2_new_disch_date_diff add mortality_0_30 int,add mortality_30_60 int,add mortality_60_90 int,add mortality_90_365 int,add mortality_365 int;
+
+update mortality_table_2_new_disch_date_diff set mortality_0_30 = 
+case when dischg_date_diff_for_30_60_90 <=30 then 1
+else 0 end;
+
+update mortality_table_2_new_disch_date_diff set mortality_30_60 = 
+case when dischg_date_diff_for_30_60_90 <= 60 then 1
+else 0 end;
+
+update mortality_table_2_new_disch_date_diff set mortality_60_90 = 
+case when dischg_date_diff_for_30_60_90 <= 90 then 1
+else 0 end;
+
+update mortality_table_2_new_disch_date_diff set mortality_90_365 = 
+case when dischg_date_diff_for_30_60_90 <= 365 then 1
+else 0 end;
+
+update mortality_table_2_new_disch_date_diff set mortality_365 = 
+case when dischg_date_diff_for_30_60_90 > 365 then 1
+else 0 end;
+
+select count(*) from mortality_table_2_new_disch_date_diff;
+
+drop table final_master_table_for_mortality;
+create dimension table final_master_table_for_mortality as 
+select A.*,B.disch_date_diff, B.admit_date_diff, B.Visit,B.length_of_stay, B.readmission_days,B.is_redmit_grt_30,B.total_days_spent, B.dischg_date_diff_for_30_60_90,mortality_0_30,mortality_30_60, mortality_60_90,
+mortality_90_365,mortality_365
+from final_sample_1 A, mortality_table_2_new_disch_date_diff B
+where A.encounter_id = B.encounter_id;
+
+select count(distinct patient_sk) from final_master_table_for_mortality;
+select * from final_master_table_for_mortality limit 1;
+
+create dimension table edge_table as
+select distinct one.diagnosis_code_trun as pair1 ,two.diagnosis_code_trun as pair2 , count(distinct one.patient_sk) as diagnosis_count
+from final_master_table_for_mortality one, final_master_table_for_mortality two
+where one.diagnosis_code_trun<two.diagnosis_code_trun and one.encounter_id = two.encounter_id
+group by one.diagnosis_code_trun,two.diagnosis_code_trun;
+
+select * from edge_table;
+
+create dimension table node_table as
+select distinct diagnosis_code_trun as nodes from final_master_table_for_mortality;
+
+--Calculating betweenness
+create dimension table betweenness_table as 
+select * from betweenness(
+on node_table as vertices partition by nodes
+on edge_table as edges partition by pair1
+targetkey('pair2')
+accumulate('nodes')
+directed('no'))
+order by betweenness desc;
+
+select * from betweenness_table;
+
+--Calculating degree
+select * from Degrees (
+on (select 1)
+partition by 1
+inputTable('edge_table')
+directed('f')
+startNode('pair1')
+ENDNODE('pair2')
+augmented('f'));
+
+--calculating closness
+create dimension table closeness_table  as
+select * from closeness(
+on node_table as vertices partition by nodes
+on edge_table as edges partition by pair1
+targetkey('pair2')
+accumulate('nodes')
+directed('no'))
+order by sum_inv_dist desc;
+
+select * from closeness_table;
+
+--calculating clustering coefficient
+create dimension table cc_table as
+select * from LocalClusteringCoefficient(
+on edge_table as edges partition by pair1
+on node_table as vertices partition by nodes
+targetkey('pair2')
+directed('false')
+accumulate('nodes'));
+
+select * from cc_table;
+
+create dimension table final_master_table_for_mortality_with_network_measures as
+select a.*, b.betweenness, c.sum_inv_dist, d.cc, d.degree
+from final_master_table_for_mortality a, betweenness_table b, closeness_table c, cc_table d
+where b.nodes = a.diagnosis_code_trun
+and c.nodes = a.diagnosis_code_trun
+and d.nodes = a.diagnosis_code_trun;
+
+select count(*) from final_master_table_for_mortality_with_network_measures;
+
+select * from glm(on (select 1) partition by 1
+inputtable('final_master_table_for_mortality_with_network_measures')
+outputtable('glm_output')
+family('logistic')
+columnnames('mortality_0_30','betweenness', 'sum_inv_dist','cc','degree','age_in_years','race','bed_size_range','gender','census_region','marital_status')
+CategoricalColumns('bed_size_range', 'race', 'gender','census_region','marital_status'))
+;
+
+select distinct census_region from final_master_table_for_mortality_with_network_measures;
+
 
 
