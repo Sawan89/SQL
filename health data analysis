@@ -711,14 +711,65 @@ group by one.diagnosis_code_trun,two.diagnosis_code_trun;
 
 select * from edge_table;
 
+select avg(diagnosis_count) from edge_table;
+
 create dimension table node_table as
 select distinct diagnosis_code_trun as nodes from final_master_table_for_mortality;
 
+select patient_sk from final_master_table_for_mortality where diagnosis_code_trun = '001';
+select * from final_master_table_for_mortality where patient_sk = '55180081';
+select * from node_table;
+
+--calculating individual diagnosis count
+drop table diag_count;
+create dimension table diag_count as
+select diagnosis_code_trun, count(distinct patient_sk) as diag_count from final_master_table_for_mortality 
+group by diagnosis_code_trun;
+
+--creating node table with individual diagnosis count
+create dimension table node_table_with_diag_count as
+select nodes, diag_count from node_table,diag_count where
+nodes = diagnosis_code_trun;
+
+select * from node_table_with_diag_count;
+
+--create edge_table with individual count for pair1
+drop table edge_table_with_diag_count_pair1;
+create dimension table edge_table_with_diag_count_pair1 as
+select a.*, diag_count as pair1_count from edge_table a, node_table_with_diag_count  where
+pair1 = nodes;
+
+select * from edge_table_with_diag_count_pair1;
+
+--creating edge_table with individual count for pir1,pair2
+
+create dimension table edge_table_with_diag_count as
+select a.*, diag_count as pair2_count from edge_table_with_diag_count_pair1 a, node_table_with_diag_count  where
+pair2 = nodes;
+
+select * from edge_table_with_diag_count;
+
+--adding salton cosine index
+create dimension table edge_table_salton_cosine_index as
+select *,diagnosis_count/ sqrt(pair1_count * pair2_count)as salton_cosine_index from edge_table_with_diag_count;
+
+select * from edge_table_salton_cosine_index;
+select count(*) from edge_table_salton_cosine_index where salton_cosine_index > 0.04;
+
+--creating final edge table
+drop table final_edge_table;
+create dimension table final_edge_table as
+select pair1, pair2,diagnosis_count from edge_table_salton_cosine_index where salton_cosine_index > 0.04;
+
+select * from final_edge_table;
+select count(*) from final_edge_table;
+
 --Calculating betweenness
+drop table betweenness_table;
 create dimension table betweenness_table as 
 select * from betweenness(
 on node_table as vertices partition by nodes
-on edge_table as edges partition by pair1
+on final_edge_table as edges partition by pair1
 targetkey('pair2')
 accumulate('nodes')
 directed('no'))
@@ -730,17 +781,18 @@ select * from betweenness_table;
 select * from Degrees (
 on (select 1)
 partition by 1
-inputTable('edge_table')
+inputTable('final_edge_table')
 directed('f')
 startNode('pair1')
 ENDNODE('pair2')
 augmented('f'));
 
 --calculating closness
+drop table closeness_table;
 create dimension table closeness_table  as
 select * from closeness(
 on node_table as vertices partition by nodes
-on edge_table as edges partition by pair1
+on final_edge_table as edges partition by pair1
 targetkey('pair2')
 accumulate('nodes')
 directed('no'))
@@ -749,9 +801,10 @@ order by sum_inv_dist desc;
 select * from closeness_table;
 
 --calculating clustering coefficient
+drop table cc_table;
 create dimension table cc_table as
 select * from LocalClusteringCoefficient(
-on edge_table as edges partition by pair1
+on final_edge_table as edges partition by pair1
 on node_table as vertices partition by nodes
 targetkey('pair2')
 directed('false')
@@ -759,6 +812,8 @@ accumulate('nodes'));
 
 select * from cc_table;
 
+--adding network measures to table
+drop table final_master_table_for_mortality_with_network_measures;
 create dimension table final_master_table_for_mortality_with_network_measures as
 select a.*, b.betweenness, c.sum_inv_dist, d.cc, d.degree
 from final_master_table_for_mortality a, betweenness_table b, closeness_table c, cc_table d
@@ -766,17 +821,170 @@ where b.nodes = a.diagnosis_code_trun
 and c.nodes = a.diagnosis_code_trun
 and d.nodes = a.diagnosis_code_trun;
 
-select count(*) from final_master_table_for_mortality_with_network_measures;
+select * from final_master_table_for_mortality_with_network_measures;
+
+select count(*) from final_master_table_for_mortality_with_network_measures where admitted_tm_valid_ind = '1';
+select count(*) from final_master_table_for_mortality_with_network_measures where discharged_tm_valid_ind != '1'; --100119
+
+select count(*) from final_master_table_for_mortality_with_network_measures; --973095
+
+--checking discharged_tm_valid_ind = null 
+select count(distinct patient_sk) from final_master_table_for_mortality_with_network_measures where discharged_tm_valid_ind = 'NULL';
+
+delete from final_master_table_for_mortality_with_network_measures  where discharged_tm_valid_ind !='1';
+
+--count after deleting
+select count(*) from final_master_table_for_mortality_with_network_measures; ----872976
+
+select count(*) from final_master_table_for_mortality_with_network_measures where visit > 100; --26
+delete from final_master_table_for_mortality_with_network_measures where  visit > 100;
+
+--count after deleting
+select count(*) from final_master_table_for_mortality_with_network_measures; --849067
+
+select  distinct diagnosis_code_trun from final_master_table_for_mortality_with_network_measures;
+select * from final_master_table_for_mortality_with_network_measures where patient_sk = '12907700';
+
+select count(*) from final_master_table_for_mortality_with_network_measures where admitted_dt_tm > discharged_dt_tm; --0
+
+select count(*) from final_master_table_for_mortality_with_network_measures where length_of_stay > admit_date_diff and disch_date_diff < 0; 
+select count(*) from final_master_table_for_mortality_with_network_measures where length_of_stay > admit_date_diff and disch_date_diff > 0; 
+select count(*) from final_master_table_for_mortality_with_network_measures where length_of_stay > admit_date_diff and disch_date_diff = 0; 
+
+/*
+--checking and deleting patient_sk with length of stay > 365
+select count(distinct patient_sk)from final_master_table_for_mortality_with_network_measures where length_of_stay > 365; --113
+select count(distinct patient_sk)from final_master_table_for_mortality_with_network_measures where readmission_days < 0;
+*/
+
+drop table enc_diag_import;
+select * from enc_diag_import;
+
+select * from enc_diagcode;
+
+drop table enc_diagcode;
+create  dimension table enc_diagcode as
+select distinct encounter_id, diagnosis_code_trun FROM final_master_table_for_mortality_with_network_measures;
+
+--finding maxcount of diagnosis count
+select max(maxcount) from (
+select encounter_id, count(diagnosis_code_trun) as maxcount from enc_diagcode
+group by encounter_id) s; --230
+
+create dimension table pivot_table as
+SELECT * FROM pivot (
+ON (SELECT encounter_id,patient_sk, diagnosis_code_trun FROM enc_diagcode)
+PARTITION BY encounter_id
+Partitions ('encounter_id')
+ROWS(230)
+METRICS ('diagnosis_code_trun')
+);
+
+select * from pivot_table;
+
+select distinct diagnosis_code_trun from final_master_table_for_mortality_with_network_measures;
+
+select * from enc_diag_import;
+delete from enc_diag_import;
+
+select count(distinct encounter_id) from enc_diag_import where "E87" = 1;
+
+
+select count(*) from final_master_table_for_mortality_with_network_measures 
+where patient_type_desc = 'Inpatient' or
+patient_type_desc = 'Emergency'; --621210
+
+
+select * from final_master_table_for_mortality_with_network_measures;
+
+--creating a temporary table
+create dimension table mortality_temp as
+select * from final_master_table_for_mortality_with_network_measures;
+
+alter table final_master_table_for_mortality_with_network_measures
+drop column diagnosis_code_trun;
+
+alter table final_master_table_for_mortality_with_network_measures
+drop column diagnosis_priority;
+
+create dimension table mortality_temp2 as
+select distinct * from final_master_table_for_mortality_with_network_measures;
+
+select count(*) from mortality_temp2; --715461
+select * from mortality_temp2;
+
+select encounter_id, count(encounter_id) from mortality_temp2
+group by encounter_id;
+
+drop table sum_measures;
+create dimension table sum_measures as
+select encounter_id, sum(betweenness)as sum_betweeness,sum(sum_inv_dist) as sum_closeness,sum(cc)as sum_cc,sum(degree)as sum_degree from mortality_temp2 
+group by encounter_id;
+
+select * from sum_measures;
+
+create dimension table mortality_temp2_sum_measures as
+select a.*, sum_betweeness,sum_closeness,sum_cc,sum_degree from mortality_temp2 a, sum_measures b
+where a.encounter_id = b.encounter_id;
+
+ select count(*) from mortality_temp2_sum_measures;
+ 
+alter table mortality_temp2_sum_measures drop column betweenness;
+alter table mortality_temp2_sum_measures drop column sum_inv_dist;
+alter table mortality_temp2_sum_measures drop column cc;
+alter table mortality_temp2_sum_measures drop column degree;
+
+
+
+ drop table distinct_mortality_temp2_sum_measures;
+ create dimension table distinct_mortality_temp2_sum_measures as
+ select distinct * from mortality_temp2_sum_measures;
+ 
+select count(*) from distinct_mortality_temp2_sum_measures; --150238
+  
+select * from distinct_mortality_temp2_sum_measures;
+
+drop table inpatient_distinct_mortality_temp2_sum_measures;
+create dimension table inpatient_distinct_mortality_temp2_sum_measures as
+select * from distinct_mortality_temp2_sum_measures where patient_type_desc = 'Inpatient' or patient_type_desc = 'Emergency';
+
+select count(*) from inpatient_distinct_mortality_temp2_sum_measures; --70575
+select * from inpatient_distinct_mortality_temp2_sum_measures; --70575
+
+
+
+
+--REGRESSION______________________________
 
 select * from glm(on (select 1) partition by 1
 inputtable('final_master_table_for_mortality_with_network_measures')
-outputtable('glm_output')
+outputtable('glm_output1')
 family('logistic')
-columnnames('mortality_0_30','betweenness', 'sum_inv_dist','cc','degree','age_in_years','race','bed_size_range','gender','census_region','marital_status')
-CategoricalColumns('bed_size_range', 'race', 'gender','census_region','marital_status'))
+columnnames('mortality_0_30','betweenness', 'sum_inv_dist','cc','degree','race','bed_size_range','gender','census_region')
+CategoricalColumns('bed_size_range', 'race', 'gender','census_region'))
 ;
 
+select * from glm_output;
+
+alter table final_master_table_for_mortality_with_network_measures
+add  age_in_years_int int;
+
+create dimension table final_master_table_for_mortality_with_network_measures1 as
+select *, cast(age_in_years as integer) as age_in_years_int from final_master_table_for_mortality_with_network_measures;
+
+
 select distinct census_region from final_master_table_for_mortality_with_network_measures;
+
+select * from visit_los_readmit_new where patient_sk = '15925035';
+
+select * from encounter_table where patient_sk = '15925035';
+
+select count(*) from final_master_table_for_mortality_with_network_measures where patient_sk in(
+select distinct patient_sk from final_master_table_for_mortality_with_network_measures where visit > 100); 
+
+
+
+
 
 
 
