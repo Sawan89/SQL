@@ -639,7 +639,7 @@ select count(distinct(patient_sk)) from mortality_table_2;
 
 create dimension table mortality_table_2 as 
 select * from visit_los_readmit_new_with_total_days where patient_sk in (select patient_sk from mortality_table);
-select count(*) from mortality_table_2;
+select * from mortality_table_2;
 -- 30 day, 60 day and 90 day mortalityy
 
 --mortality
@@ -833,6 +833,7 @@ select count(distinct patient_sk) from final_master_table_for_mortality_with_net
 
 delete from final_master_table_for_mortality_with_network_measures  where discharged_tm_valid_ind !='1';
 
+select count(*) from final_master_table_for_mortality_with_network_measures where admitted_tm_valid_ind = 'NULL'; --0
 --count after deleting
 select count(*) from final_master_table_for_mortality_with_network_measures; ----872976
 
@@ -873,7 +874,7 @@ group by encounter_id) s; --230
 
 create dimension table pivot_table as
 SELECT * FROM pivot (
-ON (SELECT encounter_id,patient_sk, diagnosis_code_trun FROM enc_diagcode)
+ON (SELECT encounter_id, diagnosis_code_trun FROM enc_diagcode)
 PARTITION BY encounter_id
 Partitions ('encounter_id')
 ROWS(230)
@@ -887,7 +888,7 @@ select distinct diagnosis_code_trun from final_master_table_for_mortality_with_n
 select * from enc_diag_import;
 delete from enc_diag_import;
 
-select count(distinct encounter_id) from enc_diag_import where "E87" = 1;
+select count(distinct encounter_id) from enc_diag_import where 'E87' = 1;
 
 
 select count(*) from final_master_table_for_mortality_with_network_measures 
@@ -944,12 +945,31 @@ select count(*) from distinct_mortality_temp2_sum_measures; --150238
   
 select * from distinct_mortality_temp2_sum_measures;
 
-drop table inpatient_distinct_mortality_temp2_sum_measures;
-create dimension table inpatient_distinct_mortality_temp2_sum_measures as
-select * from distinct_mortality_temp2_sum_measures where patient_type_desc = 'Inpatient' or patient_type_desc = 'Emergency';
+select * from enc_1;
 
-select count(*) from inpatient_distinct_mortality_temp2_sum_measures; --70575
-select * from inpatient_distinct_mortality_temp2_sum_measures; --70575
+create dimension table enc_1_copy as select * from enc_1;
+
+drop table enc_1_copy;
+
+insert into enc_1_copy select * from enc_1;
+
+--adding diagnosis codes to final dataset
+create dimension table mortality_table_with_diag_code as
+select a.*, b.* from distinct_mortality_temp2_sum_measures a, enc_1_copy b
+where a.encounter_id = b.encounter_id_1;
+
+select * from mortality_table_with_diag_code limit 10;
+
+select count(*) from mortality_table_with_diag_code; --150238
+select count(*) from distinct_mortality_temp2_sum_measures where  dischg_disp_code_desc like 'Expired%';
+
+drop table inpatient_mortality_table_with_diag_code;
+create dimension table inpatient_mortality_table_with_diag_code as
+select * from mortality_table_with_diag_code where patient_type_desc = 'Inpatient' or patient_type_desc = 'Emergency';
+
+select count(*) from inpatient_mortality_table_with_diag_code; --70575
+
+select * from inpatient_mortality_table_with_diag_code limit 10;
 
 
 
@@ -984,7 +1004,355 @@ select distinct patient_sk from final_master_table_for_mortality_with_network_me
 
 
 
+--
+select * from enc_1 limit 10;
+select * from survived_table limit 10;
+
+delete from enc_1;
 
 
+-- adding diagnosis codes
+create dimension table final_combined_diag_code_1 as
+ select * from final_combined_diag_code order by patient_sk,admitted_dt_tm;
+ 
+ 
+ create dimension table combined_diag_code as
+ select B.patient_sk, A.*,B.admitted_dt_tm from combined_codes A,  visit_los_readmit_new_with_total_days B where
+ A.encounter_id = B.encounter_id;
+ 
+ create dimension table final_combined_diag_code as
+ select distinct * from combined_diag_code;
+
+ select count(*) from enc_1;
+ 
+drop table enc_1;
+select count(*) from enc_1;
+
+
+--extra network measures
+create dimension table LoopyBeliefPropagation_table as
+SELECT * FROM LoopyBeliefPropagation (
+ON final_edge_table AS edges PARTITION BY pair1
+ON node_table AS vertices PARTITION BY nodes
+TargetKey('pair2')
+Accumulate('nodes')
+);
+
+create dimension table AllPairsShortestPath_table as
+SELECT * FROM AllPairsShortestPath (
+ON node_table AS vertices PARTITION BY nodes
+ON final_edge_table AS edges PARTITION BY pair1
+TargetKey ('pair2')
+MaxDistance ('-1')
+);
+
+--end of extra network measures
+
+
+select count(*) from yourdata_s;
+drop table yourdata_s;
+
+
+
+
+
+
+PREPARING SURVIVAL DATA:
+
+create dimension table survived_table as
+select * from final_sample_1 where patient_sk not in ((select patient_sk from mortality_table));
+
+select * from survived_table limit 10;
+
+create dimension table survived_unique_patient_sk as
+select distinct patient_sk from survived_table;
+
+select count(*) from survived_unique_patient_sk; --2044379
+select count(*) from distinct_mortality_temp2_sum_measures; --150238
+
+select count(distinct(patient_sk)) from distinct_mortality_temp2_sum_measures; --18523
+
+
+drop table survived_patients_sk_sample1;
+create dimension table survived_patients_sk_sample1 as
+ select * from sample (
+ on survived_unique_patient_sk samplefraction('0.009')
+ Seed('1')
+);
+
+select count(distinct patient_sk) from survived_patients_sk_sample1; --18423
+
+create dimension table final_survived_sample_table_1 as
+select b.* from survived_patients_sk_sample1 a left join survived_table b
+on a.patient_sk=b.patient_sk;
+
+select count(*) from final_survived_sample_table_1; --290062
+select patient_sk,count(*)as cnt from final_survived_sample_table_1 group by patient_sk order by cnt desc limit 100 ;
+
+create dimension table final_survived_sample_table_2 as
+select * from final_survived_sample_table_1 where discharged_tm_valid_ind = '1';
+
+select count(*) from final_survived_sample_table_2 where admitted_dt_tm > discharged_dt_tm;
+
+create dimension table final_master_table_for_survival as 
+select A.*,B.disch_date_diff, B.admit_date_diff, B.Visit,B.length_of_stay, B.readmission_days,B.is_redmit_grt_30,B.total_days_spent
+from final_survived_sample_table_2 A, visit_los_readmit_new_with_total_days B
+where A.encounter_id = B.encounter_id;
+
+select * from final_master_table_for_survival;
+
+
+--creating edges and nodes
+create dimension table edge_table_S as
+select distinct one.diagnosis_code_trun as pair1 ,two.diagnosis_code_trun as pair2 , count(distinct one.patient_sk) as diagnosis_count
+from final_master_table_for_survival one, final_master_table_for_survival two
+where one.diagnosis_code_trun<two.diagnosis_code_trun and one.encounter_id = two.encounter_id
+group by one.diagnosis_code_trun,two.diagnosis_code_trun;
+
+select * from edge_table_S;
+
+create dimension table node_table_S as
+select distinct diagnosis_code_trun as nodes from final_master_table_for_survival;
+
+--calculating individual diagnosis count
+drop table diag_count_S;
+create dimension table diag_count_S as
+select diagnosis_code_trun, count(distinct patient_sk) as diag_count from final_master_table_for_survival 
+group by diagnosis_code_trun;
+
+--creating node table with individual diagnosis count
+drop table node_table_with_diag_count_S;
+create dimension table node_table_with_diag_count_S as
+select nodes, diag_count from node_table_S,diag_count_S where
+nodes = diagnosis_code_trun;
+
+
+-----------------------
+
+--creating node table with individual diagnosis count
+select * from node_table_with_diag_count_S;
+
+--create edge_table with individual count for pair1
+drop table edge_table_with_diag_count_pair1_S;
+create dimension table edge_table_with_diag_count_pair1_S as
+select a.*, diag_count as pair1_count from edge_table_S a, node_table_with_diag_count_S  where
+pair1 = nodes;
+
+select * from edge_table_with_diag_count_pair1_S;
+
+--creating edge_table with individual count for pair1,pair2
+
+create dimension table edge_table_with_diag_count_S as
+select a.*, diag_count as pair2_count from edge_table_with_diag_count_pair1_S a, node_table_with_diag_count_S  where
+pair2 = nodes;
+
+----------------------------
+
+select * from edge_table_with_diag_count_S;
+
+--adding salton cosine index
+create dimension table edge_table_salton_cosine_index_S as
+select *,diagnosis_count/ sqrt(pair1_count * pair2_count)as salton_cosine_index from edge_table_with_diag_count_S;
+
+select * from edge_table_salton_cosine_index_S;
+select count(*) from edge_table_salton_cosine_index_S where salton_cosine_index > 0.04;
+
+--creating final edge table
+drop table final_edge_table_S;
+create dimension table final_edge_table_S as
+select pair1, pair2,diagnosis_count from edge_table_salton_cosine_index_S where salton_cosine_index > 0.04;
+
+select * from final_edge_table_S;
+select count(*) from final_edge_table_S;
+
+select count(distinct patient_sk) from final_master_table_for_survival where visit > 100;
+
+--Calculating betweenness
+drop table betweenness_table_S;
+create dimension table betweenness_table_S as 
+select * from betweenness(
+on node_table_S as vertices partition by nodes
+on final_edge_table_S as edges partition by pair1
+targetkey('pair2')
+accumulate('nodes')
+directed('no'))
+order by betweenness desc;
+
+select * from betweenness_table_S;
+
+--calculating closness
+drop table closeness_table_S;
+create dimension table closeness_table_S  as
+select * from closeness(
+on node_table_S as vertices partition by nodes
+on final_edge_table_S as edges partition by pair1
+targetkey('pair2')
+accumulate('nodes')
+directed('no'))
+order by sum_inv_dist desc;
+
+select * from closeness_table_S;
+
+--calculating clustering coefficient
+drop table cc_table_S;
+create dimension table cc_table_S as
+select * from LocalClusteringCoefficient(
+on final_edge_table_S as edges partition by pair1
+on node_table_S as vertices partition by nodes
+targetkey('pair2')
+directed('false')
+accumulate('nodes'));
+
+select * from cc_table_S;
+
+--adding network measures to table
+drop table final_master_table_for_survival_with_network_measures;
+create dimension table final_master_table_for_survival_with_network_measures as
+select a.*, b.betweenness, c.sum_inv_dist, d.cc, d.degree
+from final_master_table_for_survival a, betweenness_table_S b, closeness_table_S c, cc_table_S d
+where b.nodes = a.diagnosis_code_trun
+and c.nodes = a.diagnosis_code_trun
+and d.nodes = a.diagnosis_code_trun;
+
+select * from final_master_table_for_survival_with_network_measures;
+
+select count(distinct patient_sk) from final_master_table_for_survival_with_network_measures where discharged_tm_valid_ind = 'NULL';
+delete from final_master_table_for_survival_with_network_measures  where discharged_tm_valid_ind !='1';
+
+select count(distinct patient_sk) from final_master_table_for_survival_with_network_measures where visit > 100; --26
+delete from final_master_table_for_survival_with_network_measures where  visit > 100;
+
+
+--creating a temporary table
+create dimension table survival_temp as
+select * from final_master_table_for_survival_with_network_measures;
+
+select count(*) from survival_temp;
+
+alter table survival_temp
+drop column diagnosis_code_trun;
+
+alter table survival_temp
+drop column diagnosis_priority;
+
+create dimension table survival_temp2 as
+select distinct * from survival_temp;
+
+select count(*) from survival_temp2; --217082
+
+drop table sum_measures_S;
+create dimension table sum_measures_S as
+select encounter_id, sum(betweenness)as sum_betweeness,sum(sum_inv_dist) as sum_closeness,sum(cc)as sum_cc,sum(degree)as sum_degree from survival_temp2 
+group by encounter_id;
+
+select * from sum_measures_S;
+
+drop table survival_temp2_sum_measures_S;
+create dimension table survival_temp2_sum_measures_S as
+select a.*, sum_betweeness,sum_closeness,sum_cc,sum_degree from survival_temp2 a, sum_measures_S b
+where a.encounter_id = b.encounter_id;
+
+ select count(*) from survival_temp2_sum_measures_S;
+ 
+ alter table survival_temp2_sum_measures_S drop column betweenness;
+alter table survival_temp2_sum_measures_S drop column sum_inv_dist;
+alter table survival_temp2_sum_measures_S drop column cc;
+alter table survival_temp2_sum_measures_S drop column degree;
+
+ drop table distinct_survival_temp2_sum_measures;
+ create dimension table distinct_survival_temp2_sum_measures as
+ select distinct * from survival_temp2_sum_measures_S;
+ 
+ select * from distinct_survival_temp2_sum_measures; --80656
+ 
+ create dimension table distinct_survival_temp2_sum_measures_2 as
+ select * from distinct_survival_temp2_sum_measures where patient_type_desc = 'Inpatient' or patient_type_desc = 'Emergency';
+  
+ select count(*) from distinct_survival_temp2_sum_measures_2;
+ select count(distinct patient_sk) from distinct_survival_temp2_sum_measures; --16128
+ 
+drop table enc_diagcode_S;
+create  dimension table enc_diagcode_S as
+select distinct encounter_id, diagnosis_code_trun FROM final_master_table_for_survival_with_network_measures;
+
+--finding maxcount of diagnosis count
+select max(maxcount) from (
+select encounter_id, count(diagnosis_code_trun) as maxcount from enc_diagcode_S
+group by encounter_id) s; --230
+
+
+create dimension table pivot_table_S as
+SELECT * FROM pivot (
+ON (SELECT encounter_id,diagnosis_code_trun FROM enc_diagcode_S)
+PARTITION BY encounter_id
+Partitions ('encounter_id')
+ROWS(47)
+METRICS ('diagnosis_code_trun')
+);
+
+select count(*) from pivot_table_S;
+
+
+select count(*) from enc1_s;
+
+drop table enc1_s_copy;
+insert into enc1_s_copy select * from enc1_s;
+
+--adding diagnosis codes to final dataset
+create dimension table survival_table_with_diag_code as
+select a.*, b.* from distinct_survival_temp2_sum_measures_2 a, enc1_s_copy b
+where a.encounter_id = b.encounter_id_1;
+
+select count(*) from survival_table_with_diag_code;
+drop table inpatient_survival_table_with_diag_code;
+create dimension table inpatient_survival_table_with_diag_code as
+select * from survival_table_with_diag_code where patient_type_desc = 'Inpatient' or patient_type_desc = 'Emergency';
+
+select count(*) from  inpatient_survival_table_with_diag_code;
+
+select * from inpatient_survival_table_with_diag_code limit 10;
+
+select * from inpatient_survival_table_with_diag_code.columns;
+
+
+--------------------- UNION OF BOTH MORTALITY AND SURVIVAL DATA--------
+
+--combining diagnosis codes
+ select * from enc_1 limit 10;
+ drop table diagnosis_codes_entire;
+create dimension table diagnosis_codes_entire
+(encounter_id_1 varchar(1000),"001" int not null default 0, "002" int not null default 0, "003" int not null default 0, "005" int not null default 0, "007" int not null default 0, "008" int not null default 0, "009" int not null default 0, "010" int not null default 0, "011" int not null default 0, "013" int not null default 0, "017" int not null default 0, "018" int not null default 0, "020" int not null default 0, "021" int not null default 0, "023" int not null default 0, "027" int not null default 0, "030" int not null default 0, "031" int not null default 0, "032" int not null default 0, "033" int not null default 0, "034" int not null default 0, "035" int not null default 0, "036" int not null default 0, "038" int not null default 0, "039" int not null default 0, "040" int not null default 0, "041" int not null default 0, "042" int not null default 0, "045" int not null default 0, "046" int not null default 0, "047" int not null default 0, "048" int not null default 0, "049" int not null default 0, "051" int not null default 0, "052" int not null default 0, "053" int not null default 0, "054" int not null default 0, "057" int not null default 0, "058" int not null default 0, "059" int not null default 0, "060" int not null default 0, "061" int not null default 0, "066" int not null default 0, "070" int not null default 0, "072" int not null default 0, "074" int not null default 0, "075" int not null default 0, "077" int not null default 0, "078" int not null default 0, "079" int not null default 0, "080" int not null default 0, "081" int not null default 0, "082" int not null default 0, "083" int not null default 0, "087" int not null default 0, "088" int not null default 0, "090" int not null default 0, "091" int not null default 0, "092" int not null default 0, "094" int not null default 0, "095" int not null default 0, "096" int not null default 0, "097" int not null default 0, "098" int not null default 0, "099" int not null default 0, "102" int not null default 0, "110" int not null default 0, "111" int not null default 0, "112" int not null default 0, "114" int not null default 0, "115" int not null default 0, "116" int not null default 0, "117" int not null default 0, "118" int not null default 0, "121" int not null default 0, "122" int not null default 0, "123" int not null default 0, "125" int not null default 0, "127" int not null default 0, "128" int not null default 0, "130" int not null default 0, "131" int not null default 0, "132" int not null default 0, "133" int not null default 0, "134" int not null default 0, "135" int not null default 0, "136" int not null default 0, "137" int not null default 0, "138" int not null default 0, "139" int not null default 0, "140" int not null default 0, "141" int not null default 0, "142" int not null default 0, "143" int not null default 0, "144" int not null default 0, "145" int not null default 0, "146" int not null default 0, "147" int not null default 0, "148" int not null default 0, "149" int not null default 0, "150" int not null default 0, "151" int not null default 0, "152" int not null default 0, "153" int not null default 0, "154" int not null default 0, "155" int not null default 0, "156" int not null default 0, "157" int not null default 0, "158" int not null default 0, "159" int not null default 0, "160" int not null default 0, "161" int not null default 0, "162" int not null default 0, "163" int not null default 0, "164" int not null default 0, "165" int not null default 0, "170" int not null default 0, "171" int not null default 0, "172" int not null default 0, "173" int not null default 0, "174" int not null default 0, "175" int not null default 0, "176" int not null default 0, "179" int not null default 0, "180" int not null default 0, "181" int not null default 0, "182" int not null default 0, "183" int not null default 0, "184" int not null default 0, "185" int not null default 0, "186" int not null default 0, "187" int not null default 0, "188" int not null default 0, "189" int not null default 0, "190" int not null default 0, "191" int not null default 0, "192" int not null default 0, "193" int not null default 0, "194" int not null default 0, "195" int not null default 0, "196" int not null default 0, "197" int not null default 0, "198" int not null default 0, "199" int not null default 0, "200" int not null default 0, "201" int not null default 0, "202" int not null default 0, "203" int not null default 0, "204" int not null default 0, "205" int not null default 0, "206" int not null default 0, "207" int not null default 0, "208" int not null default 0, "209" int not null default 0, "210" int not null default 0, "211" int not null default 0, "212" int not null default 0, "213" int not null default 0, "214" int not null default 0, "215" int not null default 0, "216" int not null default 0, "217" int not null default 0, "218" int not null default 0, "219" int not null default 0, "220" int not null default 0, "221" int not null default 0, "222" int not null default 0, "223" int not null default 0, "224" int not null default 0, "225" int not null default 0, "226" int not null default 0, "227" int not null default 0, "228" int not null default 0, "229" int not null default 0, "230" int not null default 0, "231" int not null default 0, "232" int not null default 0, "233" int not null default 0, "234" int not null default 0, "235" int not null default 0, "236" int not null default 0, "237" int not null default 0, "238" int not null default 0, "239" int not null default 0, "240" int not null default 0, "241" int not null default 0, "242" int not null default 0, "243" int not null default 0, "244" int not null default 0, "245" int not null default 0, "246" int not null default 0, "249" int not null default 0, "250" int not null default 0, "251" int not null default 0, "252" int not null default 0, "253" int not null default 0, "254" int not null default 0, "255" int not null default 0, "256" int not null default 0, "257" int not null default 0, "258" int not null default 0, "259" int not null default 0, "260" int not null default 0, "261" int not null default 0, "262" int not null default 0, "263" int not null default 0, "264" int not null default 0, "265" int not null default 0, "266" int not null default 0, "268" int not null default 0, "269" int not null default 0, "270" int not null default 0, "271" int not null default 0, "272" int not null default 0, "273" int not null default 0, "274" int not null default 0, "275" int not null default 0, "276" int not null default 0, "277" int not null default 0, "278" int not null default 0, "279" int not null default 0, "280" int not null default 0, "281" int not null default 0, "282" int not null default 0, "283" int not null default 0, "284" int not null default 0, "285" int not null default 0, "286" int not null default 0, "287" int not null default 0, "288" int not null default 0, "289" int not null default 0, "290" int not null default 0, "291" int not null default 0, "292" int not null default 0, "293" int not null default 0, "294" int not null default 0, "295" int not null default 0, "296" int not null default 0, "297" int not null default 0, "298" int not null default 0, "299" int not null default 0, "300" int not null default 0, "301" int not null default 0, "302" int not null default 0, "303" int not null default 0, "304" int not null default 0, "305" int not null default 0, "306" int not null default 0, "307" int not null default 0, "308" int not null default 0, "309" int not null default 0, "310" int not null default 0, "311" int not null default 0, "312" int not null default 0, "313" int not null default 0, "314" int not null default 0, "315" int not null default 0, "316" int not null default 0, "317" int not null default 0, "318" int not null default 0, "319" int not null default 0, "320" int not null default 0, "321" int not null default 0, "322" int not null default 0, "323" int not null default 0, "324" int not null default 0, "325" int not null default 0, "326" int not null default 0, "327" int not null default 0, "330" int not null default 0, "331" int not null default 0, "332" int not null default 0, "333" int not null default 0, "334" int not null default 0, "335" int not null default 0, "336" int not null default 0, "337" int not null default 0, "338" int not null default 0, "339" int not null default 0, "340" int not null default 0, "341" int not null default 0, "342" int not null default 0, "343" int not null default 0, "344" int not null default 0, "345" int not null default 0, "346" int not null default 0, "347" int not null default 0, "348" int not null default 0, "349" int not null default 0, "350" int not null default 0, "351" int not null default 0, "352" int not null default 0, "353" int not null default 0, "354" int not null default 0, "355" int not null default 0, "356" int not null default 0, "357" int not null default 0, "358" int not null default 0, "359" int not null default 0, "360" int not null default 0, "361" int not null default 0, "362" int not null default 0, "363" int not null default 0, "364" int not null default 0, "365" int not null default 0, "366" int not null default 0, "367" int not null default 0, "368" int not null default 0, "369" int not null default 0, "370" int not null default 0, "371" int not null default 0, "372" int not null default 0, "373" int not null default 0, "374" int not null default 0, "375" int not null default 0, "376" int not null default 0, "377" int not null default 0, "378" int not null default 0, "379" int not null default 0, "380" int not null default 0, "381" int not null default 0, "382" int not null default 0, "383" int not null default 0, "384" int not null default 0, "385" int not null default 0, "386" int not null default 0, "387" int not null default 0, "388" int not null default 0, "389" int not null default 0, "390" int not null default 0, "391" int not null default 0, "393" int not null default 0, "394" int not null default 0, "395" int not null default 0, "396" int not null default 0, "397" int not null default 0, "398" int not null default 0, "401" int not null default 0, "402" int not null default 0, "403" int not null default 0, "404" int not null default 0, "405" int not null default 0, "410" int not null default 0, "411" int not null default 0, "412" int not null default 0, "413" int not null default 0, "414" int not null default 0, "415" int not null default 0, "416" int not null default 0, "417" int not null default 0, "420" int not null default 0, "421" int not null default 0, "422" int not null default 0, "423" int not null default 0, "424" int not null default 0, "425" int not null default 0, "426" int not null default 0, "427" int not null default 0, "428" int not null default 0, "429" int not null default 0, "430" int not null default 0, "431" int not null default 0, "432" int not null default 0, "433" int not null default 0, "434" int not null default 0, "435" int not null default 0, "436" int not null default 0, "437" int not null default 0, "438" int not null default 0, "440" int not null default 0, "441" int not null default 0, "442" int not null default 0, "443" int not null default 0, "444" int not null default 0, "445" int not null default 0, "446" int not null default 0, "447" int not null default 0, "448" int not null default 0, "449" int not null default 0, "451" int not null default 0, "452" int not null default 0, "453" int not null default 0, "454" int not null default 0, "455" int not null default 0, "456" int not null default 0, "457" int not null default 0, "458" int not null default 0, "459" int not null default 0, "460" int not null default 0, "461" int not null default 0, "462" int not null default 0, "463" int not null default 0, "464" int not null default 0, "465" int not null default 0, "466" int not null default 0, "470" int not null default 0, "471" int not null default 0, "472" int not null default 0, "473" int not null default 0, "474" int not null default 0, "475" int not null default 0, "476" int not null default 0, "477" int not null default 0, "478" int not null default 0, "480" int not null default 0, "481" int not null default 0, "482" int not null default 0, "483" int not null default 0, "484" int not null default 0, "485" int not null default 0, "486" int not null default 0, "487" int not null default 0, "488" int not null default 0, "490" int not null default 0, "491" int not null default 0, "492" int not null default 0, "493" int not null default 0, "494" int not null default 0, "495" int not null default 0, "496" int not null default 0, "500" int not null default 0, "501" int not null default 0, "502" int not null default 0, "503" int not null default 0, "504" int not null default 0, "506" int not null default 0, "507" int not null default 0, "508" int not null default 0, "510" int not null default 0, "511" int not null default 0, "512" int not null default 0, "513" int not null default 0, "514" int not null default 0, "515" int not null default 0, "516" int not null default 0, "517" int not null default 0, "518" int not null default 0, "519" int not null default 0, "520" int not null default 0, "521" int not null default 0, "522" int not null default 0, "523" int not null default 0, "524" int not null default 0, "525" int not null default 0, "526" int not null default 0, "527" int not null default 0, "528" int not null default 0, "529" int not null default 0, "530" int not null default 0, "531" int not null default 0, "532" int not null default 0, "533" int not null default 0, "534" int not null default 0, "535" int not null default 0, "536" int not null default 0, "537" int not null default 0, "538" int not null default 0, "539" int not null default 0, "540" int not null default 0, "541" int not null default 0, "542" int not null default 0, "543" int not null default 0, "550" int not null default 0, "551" int not null default 0, "552" int not null default 0, "553" int not null default 0, "555" int not null default 0, "556" int not null default 0, "557" int not null default 0, "558" int not null default 0, "560" int not null default 0, "562" int not null default 0, "564" int not null default 0, "565" int not null default 0, "566" int not null default 0, "567" int not null default 0, "568" int not null default 0, "569" int not null default 0, "570" int not null default 0, "571" int not null default 0, "572" int not null default 0, "573" int not null default 0, "574" int not null default 0, "575" int not null default 0, "576" int not null default 0, "577" int not null default 0, "578" int not null default 0, "579" int not null default 0, "580" int not null default 0, "581" int not null default 0, "582" int not null default 0, "583" int not null default 0, "584" int not null default 0, "585" int not null default 0, "586" int not null default 0, "587" int not null default 0, "588" int not null default 0, "589" int not null default 0, "590" int not null default 0, "591" int not null default 0, "592" int not null default 0, "593" int not null default 0, "594" int not null default 0, "595" int not null default 0, "596" int not null default 0, "597" int not null default 0, "598" int not null default 0, "599" int not null default 0, "600" int not null default 0, "601" int not null default 0, "602" int not null default 0, "603" int not null default 0, "604" int not null default 0, "605" int not null default 0, "606" int not null default 0, "607" int not null default 0, "608" int not null default 0, "610" int not null default 0, "611" int not null default 0, "612" int not null default 0, "614" int not null default 0, "615" int not null default 0, "616" int not null default 0, "617" int not null default 0, "618" int not null default 0, "619" int not null default 0, "620" int not null default 0, "621" int not null default 0, "622" int not null default 0, "623" int not null default 0, "624" int not null default 0, "625" int not null default 0, "626" int not null default 0, "627" int not null default 0, "628" int not null default 0, "629" int not null default 0, "630" int not null default 0, "631" int not null default 0, "632" int not null default 0, "633" int not null default 0, "634" int not null default 0, "635" int not null default 0, "637" int not null default 0, "639" int not null default 0, "640" int not null default 0, "641" int not null default 0, "642" int not null default 0, "643" int not null default 0, "644" int not null default 0, "645" int not null default 0, "646" int not null default 0, "647" int not null default 0, "648" int not null default 0, "649" int not null default 0, "650" int not null default 0, "651" int not null default 0, "652" int not null default 0, "653" int not null default 0, "654" int not null default 0, "655" int not null default 0, "656" int not null default 0, "657" int not null default 0, "658" int not null default 0, "659" int not null default 0, "660" int not null default 0, "661" int not null default 0, "662" int not null default 0, "663" int not null default 0, "664" int not null default 0, "665" int not null default 0, "666" int not null default 0, "667" int not null default 0, "668" int not null default 0, "669" int not null default 0, "670" int not null default 0, "671" int not null default 0, "672" int not null default 0, "673" int not null default 0, "674" int not null default 0, "675" int not null default 0, "676" int not null default 0, "677" int not null default 0, "680" int not null default 0, "681" int not null default 0, "682" int not null default 0, "683" int not null default 0, "684" int not null default 0, "685" int not null default 0, "686" int not null default 0, "690" int not null default 0, "691" int not null default 0, "692" int not null default 0, "693" int not null default 0, "694" int not null default 0, "695" int not null default 0, "696" int not null default 0, "697" int not null default 0, "698" int not null default 0, "700" int not null default 0, "701" int not null default 0, "702" int not null default 0, "703" int not null default 0, "704" int not null default 0, "705" int not null default 0, "706" int not null default 0, "707" int not null default 0, "708" int not null default 0, "709" int not null default 0, "710" int not null default 0, "711" int not null default 0, "712" int not null default 0, "713" int not null default 0, "714" int not null default 0, "715" int not null default 0, "716" int not null default 0, "717" int not null default 0, "718" int not null default 0, "719" int not null default 0, "720" int not null default 0, "721" int not null default 0, "722" int not null default 0, "723" int not null default 0, "724" int not null default 0, "725" int not null default 0, "726" int not null default 0, "727" int not null default 0, "728" int not null default 0, "729" int not null default 0, "730" int not null default 0, "731" int not null default 0, "732" int not null default 0, "733" int not null default 0, "734" int not null default 0, "735" int not null default 0, "736" int not null default 0, "737" int not null default 0, "738" int not null default 0, "739" int not null default 0, "740" int not null default 0, "741" int not null default 0, "742" int not null default 0, "743" int not null default 0, "744" int not null default 0, "745" int not null default 0, "746" int not null default 0, "747" int not null default 0, "748" int not null default 0, "749" int not null default 0, "750" int not null default 0, "751" int not null default 0, "752" int not null default 0, "753" int not null default 0, "754" int not null default 0, "755" int not null default 0, "756" int not null default 0, "757" int not null default 0, "758" int not null default 0, "759" int not null default 0, "760" int not null default 0, "761" int not null default 0, "762" int not null default 0, "763" int not null default 0, "764" int not null default 0, "765" int not null default 0, "766" int not null default 0, "767" int not null default 0, "768" int not null default 0, "769" int not null default 0, "770" int not null default 0, "771" int not null default 0, "772" int not null default 0, "773" int not null default 0, "774" int not null default 0, "775" int not null default 0, "776" int not null default 0, "777" int not null default 0, "778" int not null default 0, "779" int not null default 0, "780" int not null default 0, "781" int not null default 0, "782" int not null default 0, "783" int not null default 0, "784" int not null default 0, "785" int not null default 0, "786" int not null default 0, "787" int not null default 0, "788" int not null default 0, "789" int not null default 0, "790" int not null default 0, "791" int not null default 0, "792" int not null default 0, "793" int not null default 0, "794" int not null default 0, "795" int not null default 0, "796" int not null default 0, "797" int not null default 0, "798" int not null default 0, "799" int not null default 0, "800" int not null default 0, "801" int not null default 0, "802" int not null default 0, "803" int not null default 0, "804" int not null default 0, "805" int not null default 0, "806" int not null default 0, "807" int not null default 0, "808" int not null default 0, "809" int not null default 0, "810" int not null default 0, "811" int not null default 0, "812" int not null default 0, "813" int not null default 0, "814" int not null default 0, "815" int not null default 0, "816" int not null default 0, "817" int not null default 0, "818" int not null default 0, "820" int not null default 0, "821" int not null default 0, "822" int not null default 0, "823" int not null default 0, "824" int not null default 0, "825" int not null default 0, "826" int not null default 0, "827" int not null default 0, "828" int not null default 0, "829" int not null default 0, "830" int not null default 0, "831" int not null default 0, "832" int not null default 0, "833" int not null default 0, "834" int not null default 0, "835" int not null default 0, "836" int not null default 0, "837" int not null default 0, "838" int not null default 0, "839" int not null default 0, "840" int not null default 0, "841" int not null default 0, "842" int not null default 0, "843" int not null default 0, "844" int not null default 0, "845" int not null default 0, "846" int not null default 0, "847" int not null default 0, "848" int not null default 0, "850" int not null default 0, "851" int not null default 0, "852" int not null default 0, "853" int not null default 0, "854" int not null default 0, "860" int not null default 0, "861" int not null default 0, "862" int not null default 0, "863" int not null default 0, "864" int not null default 0, "865" int not null default 0, "866" int not null default 0, "867" int not null default 0, "868" int not null default 0, "869" int not null default 0, "870" int not null default 0, "871" int not null default 0, "872" int not null default 0, "873" int not null default 0, "874" int not null default 0, "875" int not null default 0, "876" int not null default 0, "877" int not null default 0, "878" int not null default 0, "879" int not null default 0, "880" int not null default 0, "881" int not null default 0, "882" int not null default 0, "883" int not null default 0, "884" int not null default 0, "885" int not null default 0, "886" int not null default 0, "887" int not null default 0, "890" int not null default 0, "891" int not null default 0, "892" int not null default 0, "893" int not null default 0, "894" int not null default 0, "895" int not null default 0, "896" int not null default 0, "897" int not null default 0, "900" int not null default 0, "901" int not null default 0, "902" int not null default 0, "903" int not null default 0, "904" int not null default 0, "905" int not null default 0, "906" int not null default 0, "907" int not null default 0, "908" int not null default 0, "909" int not null default 0, "910" int not null default 0, "911" int not null default 0, "912" int not null default 0, "913" int not null default 0, "914" int not null default 0, "915" int not null default 0, "916" int not null default 0, "917" int not null default 0, "918" int not null default 0, "919" int not null default 0, "920" int not null default 0, "921" int not null default 0, "922" int not null default 0, "923" int not null default 0, "924" int not null default 0, "926" int not null default 0, "927" int not null default 0, "928" int not null default 0, "929" int not null default 0, "930" int not null default 0, "931" int not null default 0, "932" int not null default 0, "933" int not null default 0, "934" int not null default 0, "935" int not null default 0, "936" int not null default 0, "937" int not null default 0, "938" int not null default 0, "939" int not null default 0, "940" int not null default 0, "941" int not null default 0, "942" int not null default 0, "943" int not null default 0, "944" int not null default 0, "945" int not null default 0, "946" int not null default 0, "947" int not null default 0, "948" int not null default 0, "949" int not null default 0, "950" int not null default 0, "951" int not null default 0, "952" int not null default 0, "953" int not null default 0, "954" int not null default 0, "955" int not null default 0, "956" int not null default 0, "957" int not null default 0, "958" int not null default 0, "959" int not null default 0, "960" int not null default 0, "961" int not null default 0, "962" int not null default 0, "963" int not null default 0, "964" int not null default 0, "965" int not null default 0, "966" int not null default 0, "967" int not null default 0, "968" int not null default 0, "969" int not null default 0, "970" int not null default 0, "971" int not null default 0, "972" int not null default 0, "973" int not null default 0, "974" int not null default 0, "975" int not null default 0, "976" int not null default 0, "977" int not null default 0, "980" int not null default 0, "982" int not null default 0, "983" int not null default 0, "984" int not null default 0, "985" int not null default 0, "986" int not null default 0, "987" int not null default 0, "989" int not null default 0, "990" int not null default 0, "991" int not null default 0, "992" int not null default 0, "993" int not null default 0, "994" int not null default 0, "995" int not null default 0, "996" int not null default 0, "997" int not null default 0, "998" int not null default 0, "999" int not null default 0, "E00" int not null default 0, "E01" int not null default 0, "E02" int not null default 0, "E03" int not null default 0, "E81" int not null default 0, "E82" int not null default 0, "E83" int not null default 0, "E84" int not null default 0, "E85" int not null default 0, "E86" int not null default 0, "E87" int not null default 0, "E88" int not null default 0, "E89" int not null default 0, "E90" int not null default 0, "E91" int not null default 0, "E92" int not null default 0, "E93" int not null default 0, "E94" int not null default 0, "E95" int not null default 0, "E96" int not null default 0, "E97" int not null default 0, "E98" int not null default 0, "NKP" int not null default 0, "V01" int not null default 0, "V02" int not null default 0, "V03" int not null default 0, "V04" int not null default 0, "V05" int not null default 0, "V06" int not null default 0, "V07" int not null default 0, "V08" int not null default 0, "V09" int not null default 0, "V10" int not null default 0, "V11" int not null default 0, "V12" int not null default 0, "V13" int not null default 0, "V14" int not null default 0, "V15" int not null default 0, "V16" int not null default 0, "V17" int not null default 0, "V18" int not null default 0, "V19" int not null default 0, "V20" int not null default 0, "V21" int not null default 0, "V22" int not null default 0, "V23" int not null default 0, "V24" int not null default 0, "V25" int not null default 0, "V26" int not null default 0, "V27" int not null default 0, "V28" int not null default 0, "V29" int not null default 0, "V30" int not null default 0, "V31" int not null default 0, "V32" int not null default 0, "V33" int not null default 0, "V34" int not null default 0, "V36" int not null default 0, "V37" int not null default 0, "V39" int not null default 0, "V40" int not null default 0, "V41" int not null default 0, "V42" int not null default 0, "V43" int not null default 0, "V44" int not null default 0, "V45" int not null default 0, "V46" int not null default 0, "V47" int not null default 0, "V48" int not null default 0, "V49" int not null default 0, "V50" int not null default 0, "V51" int not null default 0, "V52" int not null default 0, "V53" int not null default 0, "V54" int not null default 0, "V55" int not null default 0, "V56" int not null default 0, "V57" int not null default 0, "V58" int not null default 0, "V59" int not null default 0, "V60" int not null default 0, "V61" int not null default 0, "V62" int not null default 0, "V63" int not null default 0, "V64" int not null default 0, "V65" int not null default 0, "V66" int not null default 0, "V67" int not null default 0, "V68" int not null default 0, "V69" int not null default 0, "V70" int not null default 0, "V71" int not null default 0, "V72" int not null default 0, "V73" int not null default 0, "V74" int not null default 0, "V75" int not null default 0, "V76" int not null default 0, "V77" int not null default 0, "V78" int not null default 0, "V79" int not null default 0, "V80" int not null default 0, "V81" int not null default 0, "V82" int not null default 0, "V83" int not null default 0, "V84" int not null default 0, "V85" int not null default 0, "V86" int not null default 0, "V87" int not null default 0, "V88" int not null default 0, "V89" int not null default 0, "V90" int not null default 0, "V91" int not null default 0);
+
+insert into diagnosis_codes_entire("encounter_id_1","001" , "002" , "003" , "005" , "007" , "008" , "009" , "010" , "011" , "017" , "018" , "020" , "021" , "027" , "030" , "031" , "032" , "033" , "034" , "035" , "036" , "038" , "039" , "040" , "041" , "042" , "045" , "046" , "047" , "048" , "049" , "052" , "053" , "054" , "057" , "070" , "074" , "075" , "077" , "078" , "079" , "081" , "082" , "088" , "090" , "091" , "092" , "094" , "097" , "098" , "099" , "102" , "110" , "111" , "112" , "114" , "115" , "116" , "117" , "121" , "122" , "123" , "125" , "127" , "128" , "130" , "131" , "132" , "133" , "134" , "135" , "136" , "137" , "138" , "139" , "140" , "141" , "142" , "143" , "144" , "145" , "146" , "147" , "148" , "149" , "150" , "151" , "152" , "153" , "154" , "155" , "156" , "157" , "158" , "159" , "160" , "161" , "162" , "163" , "164" , "165" , "170" , "171" , "172" , "173" , "174" , "175" , "176" , "179" , "180" , "181" , "182" , "183" , "184" , "185" , "186" , "187" , "188" , "189" , "190" , "191" , "192" , "193" , "194" , "195" , "196" , "197" , "198" , "199" , "200" , "201" , "202" , "203" , "204" , "205" , "206" , "207" , "208" , "209" , "210" , "211" , "212" , "213" , "214" , "215" , "216" , "217" , "218" , "219" , "220" , "221" , "222" , "223" , "224" , "225" , "226" , "227" , "228" , "229" , "230" , "231" , "232" , "233" , "234" , "235" , "236" , "237" , "238" , "239" , "240" , "241" , "242" , "243" , "244" , "245" , "246" , "249" , "250" , "251" , "252" , "253" , "254" , "255" , "256" , "257" , "258" , "259" , "260" , "261" , "262" , "263" , "264" , "265" , "266" , "268" , "269" , "270" , "271" , "272" , "273" , "274" , "275" , "276" , "277" , "278" , "279" , "280" , "281" , "282" , "283" , "284" , "285" , "286" , "287" , "288" , "289" , "290" , "291" , "292" , "293" , "294" , "295" , "296" , "297" , "298" , "299" , "300" , "301" , "302" , "303" , "304" , "305" , "306" , "307" , "308" , "309" , "310" , "311" , "312" , "313" , "314" , "315" , "316" , "317" , "318" , "319" , "320" , "321" , "322" , "323" , "324" , "325" , "326" , "327" , "330" , "331" , "332" , "333" , "334" , "335" , "336" , "337" , "338" , "339" , "340" , "341" , "342" , "343" , "344" , "345" , "346" , "347" , "348" , "349" , "350" , "351" , "352" , "353" , "354" , "355" , "356" , "357" , "358" , "359" , "360" , "361" , "362" , "363" , "364" , "365" , "366" , "367" , "368" , "369" , "370" , "371" , "372" , "373" , "374" , "375" , "376" , "377" , "378" , "379" , "380" , "381" , "382" , "383" , "384" , "385" , "386" , "388" , "389" , "390" , "391" , "393" , "394" , "395" , "396" , "397" , "398" , "401" , "402" , "403" , "404" , "405" , "410" , "411" , "412" , "413" , "414" , "415" , "416" , "417" , "420" , "421" , "422" , "423" , "424" , "425" , "426" , "427" , "428" , "429" , "430" , "431" , "432" , "433" , "434" , "435" , "436" , "437" , "438" , "440" , "441" , "442" , "443" , "444" , "445" , "446" , "447" , "448" , "449" , "451" , "452" , "453" , "454" , "455" , "456" , "457" , "458" , "459" , "460" , "461" , "462" , "463" , "464" , "465" , "466" , "470" , "471" , "472" , "473" , "474" , "475" , "476" , "477" , "478" , "480" , "481" , "482" , "483" , "484" , "485" , "486" , "487" , "488" , "490" , "491" , "492" , "493" , "494" , "495" , "496" , "500" , "501" , "502" , "503" , "504" , "506" , "507" , "508" , "510" , "511" , "512" , "513" , "514" , "515" , "516" , "517" , "518" , "519" , "520" , "521" , "522" , "523" , "524" , "525" , "526" , "527" , "528" , "529" , "530" , "531" , "532" , "533" , "534" , "535" , "536" , "537" , "538" , "539" , "540" , "541" , "542" , "543" , "550" , "551" , "552" , "553" , "555" , "556" , "557" , "558" , "560" , "562" , "564" , "565" , "566" , "567" , "568" , "569" , "570" , "571" , "572" , "573" , "574" , "575" , "576" , "577" , "578" , "579" , "580" , "581" , "582" , "583" , "584" , "585" , "586" , "587" , "588" , "589" , "590" , "591" , "592" , "593" , "594" , "595" , "596" , "597" , "598" , "599" , "600" , "601" , "602" , "603" , "604" , "605" , "607" , "608" , "610" , "611" , "612" , "614" , "615" , "616" , "617" , "618" , "619" , "620" , "621" , "622" , "623" , "624" , "625" , "626" , "627" , "628" , "629" , "631" , "632" , "633" , "634" , "639" , "640" , "641" , "642" , "643" , "644" , "645" , "646" , "647" , "648" , "649" , "650" , "651" , "652" , "653" , "654" , "655" , "656" , "657" , "658" , "659" , "660" , "661" , "663" , "664" , "665" , "666" , "667" , "668" , "669" , "670" , "671" , "672" , "673" , "674" , "676" , "677" , "680" , "681" , "682" , "683" , "684" , "685" , "686" , "690" , "691" , "692" , "693" , "694" , "695" , "696" , "697" , "698" , "700" , "701" , "702" , "703" , "704" , "705" , "706" , "707" , "708" , "709" , "710" , "711" , "712" , "713" , "714" , "715" , "716" , "717" , "718" , "719" , "720" , "721" , "722" , "723" , "724" , "725" , "726" , "727" , "728" , "729" , "730" , "731" , "732" , "733" , "734" , "735" , "736" , "737" , "738" , "739" , "740" , "741" , "742" , "743" , "744" , "745" , "746" , "747" , "748" , "749" , "750" , "751" , "752" , "753" , "754" , "755" , "756" , "757" , "758" , "759" , "760" , "761" , "762" , "763" , "764" , "765" , "766" , "767" , "768" , "769" , "770" , "771" , "772" , "773" , "774" , "775" , "776" , "777" , "778" , "779" , "780" , "781" , "782" , "783" , "784" , "785" , "786" , "787" , "788" , "789" , "790" , "791" , "792" , "793" , "794" , "795" , "796" , "797" , "798" , "799" , "800" , "801" , "802" , "803" , "804" , "805" , "806" , "807" , "808" , "810" , "811" , "812" , "813" , "814" , "815" , "816" , "817" , "818" , "820" , "821" , "822" , "823" , "824" , "825" , "826" , "827" , "828" , "829" , "830" , "831" , "832" , "833" , "834" , "835" , "836" , "837" , "838" , "839" , "840" , "841" , "842" , "843" , "844" , "845" , "846" , "847" , "848" , "850" , "851" , "852" , "853" , "854" , "860" , "861" , "862" , "863" , "864" , "865" , "866" , "867" , "868" , "869" , "870" , "871" , "872" , "873" , "874" , "875" , "876" , "877" , "878" , "879" , "880" , "881" , "882" , "883" , "884" , "886" , "887" , "890" , "891" , "892" , "893" , "894" , "895" , "896" , "897" , "900" , "901" , "902" , "903" , "904" , "905" , "906" , "907" , "908" , "909" , "910" , "911" , "912" , "913" , "914" , "915" , "916" , "917" , "918" , "919" , "920" , "921" , "922" , "923" , "924" , "926" , "927" , "928" , "929" , "930" , "931" , "932" , "933" , "934" , "935" , "936" , "937" , "938" , "939" , "940" , "941" , "942" , "943" , "944" , "945" , "946" , "947" , "948" , "949" , "950" , "951" , "952" , "953" , "954" , "955" , "956" , "957" , "958" , "959" , "961" , "962" , "963" , "964" , "965" , "966" , "967" , "968" , "969" , "970" , "971" , "972" , "973" , "974" , "975" , "976" , "977" , "980" , "985" , "986" , "987" , "989" , "990" , "991" , "992" , "993" , "994" , "995" , "996" , "997" , "998" , "999" , "E00" , "E01" , "E02" , "E03" , "E81" , "E82" , "E83" , "E84" , "E85" , "E86" , "E87" , "E88" , "E89" , "E90" , "E91" , "E92" , "E93" , "E94" , "E95" , "E96" , "E97" , "E98" , "V01" , "V02" , "V03" , "V04" , "V05" , "V06" , "V07" , "V08" , "V09" , "V10" , "V11" , "V12" , "V13" , "V14" , "V15" , "V16" , "V17" , "V18" , "V19" , "V20" , "V21" , "V22" , "V23" , "V24" , "V25" , "V26" , "V27" , "V28" , "V29" , "V30" , "V31" , "V32" , "V34" , "V36" , "V37" , "V39" , "V40" , "V41" , "V42" , "V43" , "V44" , "V45" , "V46" , "V47" , "V48" , "V49" , "V50" , "V51" , "V52" , "V53" , "V54" , "V55" , "V56" , "V57" , "V58" , "V59" , "V60" , "V61" , "V62" , "V63" , "V64" , "V65" , "V66" , "V67" , "V68" , "V69" , "V70" , "V71" , "V72" , "V73" , "V74" , "V75" , "V76" , "V77" , "V78" , "V79" , "V80" , "V81" , "V82" , "V84" , "V85" , "V86" , "V87" , "V88" , "V89" , "V90" )
+select "encounter_id","001" , "002" , "003" , "005" , "007" , "008" , "009" , "010" , "011" , "017" , "018" , "020" , "021" , "027" , "030" , "031" , "032" , "033" , "034" , "035" , "036" , "038" , "039" , "040" , "041" , "042" , "045" , "046" , "047" , "048" , "049" , "052" , "053" , "054" , "057" , "070" , "074" , "075" , "077" , "078" , "079" , "081" , "082" , "088" , "090" , "091" , "092" , "094" , "097" , "098" , "099" , "102" , "110" , "111" , "112" , "114" , "115" , "116" , "117" , "121" , "122" , "123" , "125" , "127" , "128" , "130" , "131" , "132" , "133" , "134" , "135" , "136" , "137" , "138" , "139" , "140" , "141" , "142" , "143" , "144" , "145" , "146" , "147" , "148" , "149" , "150" , "151" , "152" , "153" , "154" , "155" , "156" , "157" , "158" , "159" , "160" , "161" , "162" , "163" , "164" , "165" , "170" , "171" , "172" , "173" , "174" , "175" , "176" , "179" , "180" , "181" , "182" , "183" , "184" , "185" , "186" , "187" , "188" , "189" , "190" , "191" , "192" , "193" , "194" , "195" , "196" , "197" , "198" , "199" , "200" , "201" , "202" , "203" , "204" , "205" , "206" , "207" , "208" , "209" , "210" , "211" , "212" , "213" , "214" , "215" , "216" , "217" , "218" , "219" , "220" , "221" , "222" , "223" , "224" , "225" , "226" , "227" , "228" , "229" , "230" , "231" , "232" , "233" , "234" , "235" , "236" , "237" , "238" , "239" , "240" , "241" , "242" , "243" , "244" , "245" , "246" , "249" , "250" , "251" , "252" , "253" , "254" , "255" , "256" , "257" , "258" , "259" , "260" , "261" , "262" , "263" , "264" , "265" , "266" , "268" , "269" , "270" , "271" , "272" , "273" , "274" , "275" , "276" , "277" , "278" , "279" , "280" , "281" , "282" , "283" , "284" , "285" , "286" , "287" , "288" , "289" , "290" , "291" , "292" , "293" , "294" , "295" , "296" , "297" , "298" , "299" , "300" , "301" , "302" , "303" , "304" , "305" , "306" , "307" , "308" , "309" , "310" , "311" , "312" , "313" , "314" , "315" , "316" , "317" , "318" , "319" , "320" , "321" , "322" , "323" , "324" , "325" , "326" , "327" , "330" , "331" , "332" , "333" , "334" , "335" , "336" , "337" , "338" , "339" , "340" , "341" , "342" , "343" , "344" , "345" , "346" , "347" , "348" , "349" , "350" , "351" , "352" , "353" , "354" , "355" , "356" , "357" , "358" , "359" , "360" , "361" , "362" , "363" , "364" , "365" , "366" , "367" , "368" , "369" , "370" , "371" , "372" , "373" , "374" , "375" , "376" , "377" , "378" , "379" , "380" , "381" , "382" , "383" , "384" , "385" , "386" , "388" , "389" , "390" , "391" , "393" , "394" , "395" , "396" , "397" , "398" , "401" , "402" , "403" , "404" , "405" , "410" , "411" , "412" , "413" , "414" , "415" , "416" , "417" , "420" , "421" , "422" , "423" , "424" , "425" , "426" , "427" , "428" , "429" , "430" , "431" , "432" , "433" , "434" , "435" , "436" , "437" , "438" , "440" , "441" , "442" , "443" , "444" , "445" , "446" , "447" , "448" , "449" , "451" , "452" , "453" , "454" , "455" , "456" , "457" , "458" , "459" , "460" , "461" , "462" , "463" , "464" , "465" , "466" , "470" , "471" , "472" , "473" , "474" , "475" , "476" , "477" , "478" , "480" , "481" , "482" , "483" , "484" , "485" , "486" , "487" , "488" , "490" , "491" , "492" , "493" , "494" , "495" , "496" , "500" , "501" , "502" , "503" , "504" , "506" , "507" , "508" , "510" , "511" , "512" , "513" , "514" , "515" , "516" , "517" , "518" , "519" , "520" , "521" , "522" , "523" , "524" , "525" , "526" , "527" , "528" , "529" , "530" , "531" , "532" , "533" , "534" , "535" , "536" , "537" , "538" , "539" , "540" , "541" , "542" , "543" , "550" , "551" , "552" , "553" , "555" , "556" , "557" , "558" , "560" , "562" , "564" , "565" , "566" , "567" , "568" , "569" , "570" , "571" , "572" , "573" , "574" , "575" , "576" , "577" , "578" , "579" , "580" , "581" , "582" , "583" , "584" , "585" , "586" , "587" , "588" , "589" , "590" , "591" , "592" , "593" , "594" , "595" , "596" , "597" , "598" , "599" , "600" , "601" , "602" , "603" , "604" , "605" , "607" , "608" , "610" , "611" , "612" , "614" , "615" , "616" , "617" , "618" , "619" , "620" , "621" , "622" , "623" , "624" , "625" , "626" , "627" , "628" , "629" , "631" , "632" , "633" , "634" , "639" , "640" , "641" , "642" , "643" , "644" , "645" , "646" , "647" , "648" , "649" , "650" , "651" , "652" , "653" , "654" , "655" , "656" , "657" , "658" , "659" , "660" , "661" , "663" , "664" , "665" , "666" , "667" , "668" , "669" , "670" , "671" , "672" , "673" , "674" , "676" , "677" , "680" , "681" , "682" , "683" , "684" , "685" , "686" , "690" , "691" , "692" , "693" , "694" , "695" , "696" , "697" , "698" , "700" , "701" , "702" , "703" , "704" , "705" , "706" , "707" , "708" , "709" , "710" , "711" , "712" , "713" , "714" , "715" , "716" , "717" , "718" , "719" , "720" , "721" , "722" , "723" , "724" , "725" , "726" , "727" , "728" , "729" , "730" , "731" , "732" , "733" , "734" , "735" , "736" , "737" , "738" , "739" , "740" , "741" , "742" , "743" , "744" , "745" , "746" , "747" , "748" , "749" , "750" , "751" , "752" , "753" , "754" , "755" , "756" , "757" , "758" , "759" , "760" , "761" , "762" , "763" , "764" , "765" , "766" , "767" , "768" , "769" , "770" , "771" , "772" , "773" , "774" , "775" , "776" , "777" , "778" , "779" , "780" , "781" , "782" , "783" , "784" , "785" , "786" , "787" , "788" , "789" , "790" , "791" , "792" , "793" , "794" , "795" , "796" , "797" , "798" , "799" , "800" , "801" , "802" , "803" , "804" , "805" , "806" , "807" , "808" , "810" , "811" , "812" , "813" , "814" , "815" , "816" , "817" , "818" , "820" , "821" , "822" , "823" , "824" , "825" , "826" , "827" , "828" , "829" , "830" , "831" , "832" , "833" , "834" , "835" , "836" , "837" , "838" , "839" , "840" , "841" , "842" , "843" , "844" , "845" , "846" , "847" , "848" , "850" , "851" , "852" , "853" , "854" , "860" , "861" , "862" , "863" , "864" , "865" , "866" , "867" , "868" , "869" , "870" , "871" , "872" , "873" , "874" , "875" , "876" , "877" , "878" , "879" , "880" , "881" , "882" , "883" , "884" , "886" , "887" , "890" , "891" , "892" , "893" , "894" , "895" , "896" , "897" , "900" , "901" , "902" , "903" , "904" , "905" , "906" , "907" , "908" , "909" , "910" , "911" , "912" , "913" , "914" , "915" , "916" , "917" , "918" , "919" , "920" , "921" , "922" , "923" , "924" , "926" , "927" , "928" , "929" , "930" , "931" , "932" , "933" , "934" , "935" , "936" , "937" , "938" , "939" , "940" , "941" , "942" , "943" , "944" , "945" , "946" , "947" , "948" , "949" , "950" , "951" , "952" , "953" , "954" , "955" , "956" , "957" , "958" , "959" , "961" , "962" , "963" , "964" , "965" , "966" , "967" , "968" , "969" , "970" , "971" , "972" , "973" , "974" , "975" , "976" , "977" , "980" , "985" , "986" , "987" , "989" , "990" , "991" , "992" , "993" , "994" , "995" , "996" , "997" , "998" , "999" , "E00" , "E01" , "E02" , "E03" , "E81" , "E82" , "E83" , "E84" , "E85" , "E86" , "E87" , "E88" , "E89" , "E90" , "E91" , "E92" , "E93" , "E94" , "E95" , "E96" , "E97" , "E98" , "V01" , "V02" , "V03" , "V04" , "V05" , "V06" , "V07" , "V08" , "V09" , "V10" , "V11" , "V12" , "V13" , "V14" , "V15" , "V16" , "V17" , "V18" , "V19" , "V20" , "V21" , "V22" , "V23" , "V24" , "V25" , "V26" , "V27" , "V28" , "V29" , "V30" , "V31" , "V32" , "V34" , "V36" , "V37" , "V39" , "V40" , "V41" , "V42" , "V43" , "V44" , "V45" , "V46" , "V47" , "V48" , "V49" , "V50" , "V51" , "V52" , "V53" , "V54" , "V55" , "V56" , "V57" , "V58" , "V59" , "V60" , "V61" , "V62" , "V63" , "V64" , "V65" , "V66" , "V67" , "V68" , "V69" , "V70" , "V71" , "V72" , "V73" , "V74" , "V75" , "V76" , "V77" , "V78" , "V79" , "V80" , "V81" , "V82" , "V84" , "V85" , "V86" , "V87" , "V88" , "V89" , "V90" from enc_1;
+
+insert into diagnosis_codes_entire("encounter_id_1","002", "003", "005", "007", "008", "009", "011", "013", "018", "023", "027", "031", "032", "034", "035", "038", "039", "040", "041", "042", "047", "049", "051", "052", "053", "054", "057", "058", "059", "060", "061", "066", "070", "072", "074", "075", "077", "078", "079", "080", "081", "082", "083", "087", "088", "091", "092", "094", "095", "096", "097", "098", "099", "110", "111", "112", "115", "117", "118", "130", "131", "132", "133", "134", "135", "136", "137", "138", "139", "141", "142", "143", "144", "145", "146", "147", "148", "149", "150", "151", "152", "153", "154", "155", "156", "157", "158", "159", "161", "162", "163", "164", "170", "171", "172", "173", "174", "176", "179", "180", "182", "183", "184", "185", "186", "187", "188", "189", "190", "191", "192", "193", "194", "195", "196", "197", "198", "199", "200", "201", "202", "203", "204", "205", "206", "208", "209", "210", "211", "212", "213", "214", "215", "216", "217", "218", "219", "220", "221", "222", "223", "224", "225", "226", "227", "228", "229", "230", "231", "232", "233", "234", "235", "236", "237", "238", "239", "240", "241", "242", "243", "244", "245", "246", "249", "250", "251", "252", "253", "254", "255", "256", "257", "258", "259", "260", "261", "262", "263", "265", "266", "268", "269", "270", "271", "272", "273", "274", "275", "276", "277", "278", "279", "280", "281", "282", "283", "284", "285", "286", "287", "288", "289", "290", "291", "292", "293", "294", "295", "296", "297", "298", "299", "300", "301", "302", "303", "304", "305", "306", "307", "308", "309", "310", "311", "312", "313", "314", "315", "316", "317", "318", "319", "320", "321", "322", "323", "324", "327", "330", "331", "332", "333", "334", "335", "336", "337", "338", "339", "340", "341", "342", "343", "344", "345", "346", "347", "348", "349", "350", "351", "352", "353", "354", "355", "356", "357", "358", "359", "360", "361", "362", "363", "364", "365", "366", "367", "368", "369", "370", "371", "372", "373", "374", "375", "376", "377", "378", "379", "380", "381", "382", "383", "384", "385", "386", "387", "388", "389", "394", "395", "396", "397", "398", "401", "402", "403", "404", "405", "410", "411", "412", "413", "414", "415", "416", "417", "420", "421", "422", "423", "424", "425", "426", "427", "428", "429", "430", "431", "432", "433", "434", "435", "436", "437", "438", "440", "441", "442", "443", "444", "445", "446", "447", "448", "449", "451", "452", "453", "454", "455", "456", "457", "458", "459", "460", "461", "462", "463", "464", "465", "466", "470", "471", "472", "473", "474", "475", "476", "477", "478", "480", "481", "482", "483", "484", "485", "486", "487", "488", "490", "491", "492", "493", "494", "495", "496", "501", "506", "507", "508", "510", "511", "512", "513", "514", "515", "516", "517", "518", "519", "520", "521", "522", "523", "524", "525", "526", "527", "528", "529", "530", "531", "532", "533", "534", "535", "536", "537", "539", "540", "541", "542", "543", "550", "552", "553", "555", "556", "557", "558", "560", "562", "564", "565", "566", "567", "568", "569", "570", "571", "572", "573", "574", "575", "576", "577", "578", "579", "580", "581", "582", "583", "584", "585", "586", "587", "588", "590", "591", "592", "593", "594", "595", "596", "597", "598", "599", "600", "601", "602", "603", "604", "605", "606", "607", "608", "610", "611", "612", "614", "615", "616", "617", "618", "619", "620", "621", "622", "623", "624", "625", "626", "627", "628", "629", "630", "631", "632", "633", "634", "635", "637", "639", "640", "641", "642", "643", "644", "645", "646", "647", "648", "649", "650", "651", "652", "653", "654", "655", "656", "657", "658", "659", "660", "661", "662", "663", "664", "665", "666", "667", "668", "669", "670", "671", "672", "673", "674", "675", "676", "677", "680", "681", "682", "683", "684", "685", "686", "690", "691", "692", "693", "694", "695", "696", "697", "698", "700", "701", "702", "703", "704", "705", "706", "707", "708", "709", "710", "711", "712", "713", "714", "715", "716", "717", "718", "719", "720", "721", "722", "723", "724", "725", "726", "727", "728", "729", "730", "731", "732", "733", "734", "735", "736", "737", "738", "739", "741", "742", "743", "744", "745", "746", "747", "748", "749", "750", "751", "752", "753", "754", "755", "756", "757", "758", "759", "760", "761", "762", "763", "764", "765", "766", "767", "768", "769", "770", "771", "772", "773", "774", "775", "776", "777", "778", "779", "780", "781", "782", "783", "784", "785", "786", "787", "788", "789", "790", "791", "792", "793", "794", "795", "796", "797", "799", "800", "801", "802", "803", "804", "805", "806", "807", "808", "809", "810", "811", "812", "813", "814", "815", "816", "817", "818", "820", "821", "822", "823", "824", "825", "826", "827", "829", "830", "831", "832", "833", "834", "835", "836", "837", "838", "839", "840", "841", "842", "843", "844", "845", "846", "847", "848", "850", "851", "852", "853", "854", "860", "861", "862", "863", "864", "865", "866", "867", "868", "869", "870", "871", "872", "873", "874", "875", "876", "877", "878", "879", "880", "881", "882", "883", "884", "885", "886", "887", "890", "891", "892", "893", "894", "895", "897", "900", "903", "904", "905", "906", "907", "908", "909", "910", "911", "912", "913", "914", "915", "916", "917", "918", "919", "920", "921", "922", "923", "924", "926", "927", "928", "929", "930", "931", "932", "933", "934", "935", "936", "937", "938", "939", "940", "941", "942", "943", "944", "945", "946", "947", "948", "949", "950", "952", "953", "955", "956", "957", "958", "959", "960", "961", "962", "963", "964", "965", "966", "967", "968", "969", "970", "971", "972", "973", "974", "975", "977", "980", "982", "983", "984", "985", "986", "987", "989", "990", "991", "992", "993", "994", "995", "996", "997", "998", "999", "E00", "E01", "E02", "E03", "E81", "E82", "E83", "E84", "E85", "E86", "E87", "E88", "E89", "E90", "E91", "E92", "E93", "E94", "E95", "E96", "E97", "E98", "NKP", "V01", "V02", "V03", "V04", "V05", "V06", "V07", "V08", "V09", "V10", "V11", "V12", "V13", "V14", "V15", "V16", "V17", "V18", "V19", "V20", "V21", "V22", "V23", "V24", "V25", "V26", "V27", "V28", "V29", "V30", "V31", "V33", "V34", "V39", "V40", "V41", "V42", "V43", "V44", "V45", "V46", "V47", "V48", "V49", "V50", "V51", "V52", "V53", "V54", "V55", "V56", "V57", "V58", "V59", "V60", "V61", "V62", "V63", "V64", "V65", "V66", "V67", "V68", "V69", "V70", "V71", "V72", "V73", "V74", "V75", "V76", "V77", "V78", "V79", "V80", "V81", "V82", "V83", "V84", "V85", "V86", "V87", "V88", "V89", "V90", "V91" )
+select "encounter_id_1","002", "003", "005", "007", "008", "009", "011", "013", "018", "023", "027", "031", "032", "034", "035", "038", "039", "040", "041", "042", "047", "049", "051", "052", "053", "054", "057", "058", "059", "060", "061", "066", "070", "072", "074", "075", "077", "078", "079", "080", "081", "082", "083", "087", "088", "091", "092", "094", "095", "096", "097", "098", "099", "110", "111", "112", "115", "117", "118", "130", "131", "132", "133", "134", "135", "136", "137", "138", "139", "141", "142", "143", "144", "145", "146", "147", "148", "149", "150", "151", "152", "153", "154", "155", "156", "157", "158", "159", "161", "162", "163", "164", "170", "171", "172", "173", "174", "176", "179", "180", "182", "183", "184", "185", "186", "187", "188", "189", "190", "191", "192", "193", "194", "195", "196", "197", "198", "199", "200", "201", "202", "203", "204", "205", "206", "208", "209", "210", "211", "212", "213", "214", "215", "216", "217", "218", "219", "220", "221", "222", "223", "224", "225", "226", "227", "228", "229", "230", "231", "232", "233", "234", "235", "236", "237", "238", "239", "240", "241", "242", "243", "244", "245", "246", "249", "250", "251", "252", "253", "254", "255", "256", "257", "258", "259", "260", "261", "262", "263", "265", "266", "268", "269", "270", "271", "272", "273", "274", "275", "276", "277", "278", "279", "280", "281", "282", "283", "284", "285", "286", "287", "288", "289", "290", "291", "292", "293", "294", "295", "296", "297", "298", "299", "300", "301", "302", "303", "304", "305", "306", "307", "308", "309", "310", "311", "312", "313", "314", "315", "316", "317", "318", "319", "320", "321", "322", "323", "324", "327", "330", "331", "332", "333", "334", "335", "336", "337", "338", "339", "340", "341", "342", "343", "344", "345", "346", "347", "348", "349", "350", "351", "352", "353", "354", "355", "356", "357", "358", "359", "360", "361", "362", "363", "364", "365", "366", "367", "368", "369", "370", "371", "372", "373", "374", "375", "376", "377", "378", "379", "380", "381", "382", "383", "384", "385", "386", "387", "388", "389", "394", "395", "396", "397", "398", "401", "402", "403", "404", "405", "410", "411", "412", "413", "414", "415", "416", "417", "420", "421", "422", "423", "424", "425", "426", "427", "428", "429", "430", "431", "432", "433", "434", "435", "436", "437", "438", "440", "441", "442", "443", "444", "445", "446", "447", "448", "449", "451", "452", "453", "454", "455", "456", "457", "458", "459", "460", "461", "462", "463", "464", "465", "466", "470", "471", "472", "473", "474", "475", "476", "477", "478", "480", "481", "482", "483", "484", "485", "486", "487", "488", "490", "491", "492", "493", "494", "495", "496", "501", "506", "507", "508", "510", "511", "512", "513", "514", "515", "516", "517", "518", "519", "520", "521", "522", "523", "524", "525", "526", "527", "528", "529", "530", "531", "532", "533", "534", "535", "536", "537", "539", "540", "541", "542", "543", "550", "552", "553", "555", "556", "557", "558", "560", "562", "564", "565", "566", "567", "568", "569", "570", "571", "572", "573", "574", "575", "576", "577", "578", "579", "580", "581", "582", "583", "584", "585", "586", "587", "588", "590", "591", "592", "593", "594", "595", "596", "597", "598", "599", "600", "601", "602", "603", "604", "605", "606", "607", "608", "610", "611", "612", "614", "615", "616", "617", "618", "619", "620", "621", "622", "623", "624", "625", "626", "627", "628", "629", "630", "631", "632", "633", "634", "635", "637", "639", "640", "641", "642", "643", "644", "645", "646", "647", "648", "649", "650", "651", "652", "653", "654", "655", "656", "657", "658", "659", "660", "661", "662", "663", "664", "665", "666", "667", "668", "669", "670", "671", "672", "673", "674", "675", "676", "677", "680", "681", "682", "683", "684", "685", "686", "690", "691", "692", "693", "694", "695", "696", "697", "698", "700", "701", "702", "703", "704", "705", "706", "707", "708", "709", "710", "711", "712", "713", "714", "715", "716", "717", "718", "719", "720", "721", "722", "723", "724", "725", "726", "727", "728", "729", "730", "731", "732", "733", "734", "735", "736", "737", "738", "739", "741", "742", "743", "744", "745", "746", "747", "748", "749", "750", "751", "752", "753", "754", "755", "756", "757", "758", "759", "760", "761", "762", "763", "764", "765", "766", "767", "768", "769", "770", "771", "772", "773", "774", "775", "776", "777", "778", "779", "780", "781", "782", "783", "784", "785", "786", "787", "788", "789", "790", "791", "792", "793", "794", "795", "796", "797", "799", "800", "801", "802", "803", "804", "805", "806", "807", "808", "809", "810", "811", "812", "813", "814", "815", "816", "817", "818", "820", "821", "822", "823", "824", "825", "826", "827", "829", "830", "831", "832", "833", "834", "835", "836", "837", "838", "839", "840", "841", "842", "843", "844", "845", "846", "847", "848", "850", "851", "852", "853", "854", "860", "861", "862", "863", "864", "865", "866", "867", "868", "869", "870", "871", "872", "873", "874", "875", "876", "877", "878", "879", "880", "881", "882", "883", "884", "885", "886", "887", "890", "891", "892", "893", "894", "895", "897", "900", "903", "904", "905", "906", "907", "908", "909", "910", "911", "912", "913", "914", "915", "916", "917", "918", "919", "920", "921", "922", "923", "924", "926", "927", "928", "929", "930", "931", "932", "933", "934", "935", "936", "937", "938", "939", "940", "941", "942", "943", "944", "945", "946", "947", "948", "949", "950", "952", "953", "955", "956", "957", "958", "959", "960", "961", "962", "963", "964", "965", "966", "967", "968", "969", "970", "971", "972", "973", "974", "975", "977", "980", "982", "983", "984", "985", "986", "987", "989", "990", "991", "992", "993", "994", "995", "996", "997", "998", "999", "E00", "E01", "E02", "E03", "E81", "E82", "E83", "E84", "E85", "E86", "E87", "E88", "E89", "E90", "E91", "E92", "E93", "E94", "E95", "E96", "E97", "E98", "NKP", "V01", "V02", "V03", "V04", "V05", "V06", "V07", "V08", "V09", "V10", "V11", "V12", "V13", "V14", "V15", "V16", "V17", "V18", "V19", "V20", "V21", "V22", "V23", "V24", "V25", "V26", "V27", "V28", "V29", "V30", "V31", "V33", "V34", "V39", "V40", "V41", "V42", "V43", "V44", "V45", "V46", "V47", "V48", "V49", "V50", "V51", "V52", "V53", "V54", "V55", "V56", "V57", "V58", "V59", "V60", "V61", "V62", "V63", "V64", "V65", "V66", "V67", "V68", "V69", "V70", "V71", "V72", "V73", "V74", "V75", "V76", "V77", "V78", "V79", "V80", "V81", "V82", "V83", "V84", "V85", "V86", "V87", "V88", "V89", "V90", "V91" from enc1_s_copy;
+
+
+
+select * from diagnosis_codes_entire limit 10;
+select * from diagnosis_codes_entire limit 10;
+
+--
+
+select * from distinct_mortality_temp2_sum_measures limit 1;
+select * from distinct_survival_temp2_sum_measures limit 1;
+
+alter table distinct_survival_temp2_sum_measures add mortality_0_30 int not null default 0;
+alter table distinct_survival_temp2_sum_measures add mortality_30_60 int not null default 0;
+alter table distinct_survival_temp2_sum_measures add mortality_60_90 int not null default 0;
+alter table distinct_survival_temp2_sum_measures add mortality_90_365 int not null default 0;
+alter table distinct_survival_temp2_sum_measures add mortality_365 int not null default 0;
+
+
+
+select * from distinct_survival_temp2_sum_measures limit 10;
+
+create dimension table mortality_for_union as
+SELECT "encounter_id", "hospital_id", "census_region", "census_division", "bed_size_range", "teaching_facility_ind", "cath_lab_full_ind", "cath_lab_diagnostic_ind", "urban_rural_status", "acute_status", "alt_health_system_id", "admitting_physician_id", "medical_speciality", "discharge_caresetting_id", "caresetting_desc", "patient_id", "patient_sk", "race", "gender", "marital_status", "patient_type_id", "patient_type_desc", "discharge_disposition_id", "dischg_disp_code_desc", "diagnostic_grouping_id", "mdc_id", "mdc_code", "mdc_code_desc", "drg_id", "drg_type", "drg_code", "drg_code_desc", "admission_source_id", "admission_source_code_desc", "admission_type_id", "admission_type_code_desc", "payer_id", "payer_code", "payer_code_desc", "age_in_years", "age_in_months", "age_in_weeks", "age_in_days", "age_in_hours", "total_charges", "billing_ind", "weight", "weight_unit_id", "unit_display", "unit_des", "admitted_dt_tm", "admitted_tm_valid_ind", "discharged_dt_tm", "discharged_tm_valid_ind", "present_on_admit_id", "disch_date_diff", "admit_date_diff", "visit", "length_of_stay", "readmission_days", "is_redmit_grt_30", "total_days_spent",  "mortality_0_30", "mortality_30_60", "mortality_60_90", "mortality_90_365", "mortality_365", "sum_betweeness", "sum_closeness", "sum_cc", "sum_degree" from distinct_mortality_temp2_sum_measures;
+
+create dimension table survival_for_union as
+SELECT "encounter_id", "hospital_id", "census_region", "census_division", "bed_size_range", "teaching_facility_ind", "cath_lab_full_ind", "cath_lab_diagnostic_ind", "urban_rural_status", "acute_status", "alt_health_system_id", "admitting_physician_id", "medical_speciality", "discharge_caresetting_id", "caresetting_desc", "patient_id", "patient_sk", "race", "gender", "marital_status", "patient_type_id", "patient_type_desc", "discharge_disposition_id", "dischg_disp_code_desc", "diagnostic_grouping_id", "mdc_id", "mdc_code", "mdc_code_desc", "drg_id", "drg_type", "drg_code", "drg_code_desc", "admission_source_id", "admission_source_code_desc", "admission_type_id", "admission_type_code_desc", "payer_id", "payer_code", "payer_code_desc", "age_in_years", "age_in_months", "age_in_weeks", "age_in_days", "age_in_hours", "total_charges", "billing_ind", "weight", "weight_unit_id", "unit_display", "unit_des", "admitted_dt_tm", "admitted_tm_valid_ind", "discharged_dt_tm", "discharged_tm_valid_ind", "present_on_admit_id", "disch_date_diff", "admit_date_diff", "visit", "length_of_stay", "readmission_days", "is_redmit_grt_30", "total_days_spent",  "mortality_0_30", "mortality_30_60", "mortality_60_90", "mortality_90_365", "mortality_365", "sum_betweeness", "sum_closeness", "sum_cc", "sum_degree" from distinct_survival_temp2_sum_measures;
 
 
